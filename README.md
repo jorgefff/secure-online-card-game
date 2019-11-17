@@ -1,1 +1,1 @@
-# online-card-game
+# secure-online-card-game
