@@ -6,6 +6,7 @@ import datetime
 import base64
 import os
 from sys import argv
+import sys
 
 # Global vars
 sv_pub_key = "placeholdersvkey"
@@ -35,7 +36,7 @@ def send_pub_key (client_socket):
 def send_game_list (client_socket):
     game_list = []
     for game in games.values():
-        if game.status == "OPEN":
+        if game.state == "OPEN":
             game_list.append({
                 "id": game.game_id,
                 "title": game.title,
@@ -100,13 +101,13 @@ def player_confirmation_handler (msg, client):
     else:
         success = False
         error = "Game not found"
-    
+
     if not success:
         reply = {"confirm_players": "ok"}
     else:
         reply = {"error": error}
-    
-    client_socket.send(reply)
+
+    client.send(reply)
 
 
 def inform_of_player_confirmation (msg, client_socket):
@@ -115,7 +116,7 @@ def inform_of_player_confirmation (msg, client_socket):
 
 def inform_of_new_player (game_id):
     game = games[game_id]
-    new_player = game.players[-1].name
+    new_player = game.players[-1].client.name
     for p in game.players[:-1]:
         msg = {
             "game_update": {
@@ -130,16 +131,17 @@ class Client:
         self.socket = socket
         self.name = name
         self.pub_key = pub_key
-        self.sv_pub_key # if theres a unique sv_pub_key per client
+        self.sv_pub_key = sv_pub_key # if theres a unique sv_pub_key per client
 
     def send (self, msg):
-        msg = json.dumps(smg)
-        msg = msg.encode()
+        msg = json.dumps(msg).encode()
+        #TODO: error handling
         self.socket.send(msg)
 
+
     def __eq__(self, other):
-        if not isinstance(other, Client):
-            return NotImplemented
+        if isinstance(other, Player):
+            return self == other.client
         return self.socket == other.socket
 
 
@@ -150,9 +152,7 @@ class Player:
         self.client = client        
     
     def __eq__(self, other):
-        if not isinstance(other, Player):
-            return NotImplemented
-        return self.client == other.client
+        return self.client == other
 
 
 class Game:
@@ -168,14 +168,13 @@ class Game:
     def new_player (self, client):
         if client in self.players:
             error = "Already inside"
-            return False, 0, error
+            return False, 0, True, error
             
         if self.player_count >= self.max_player_count:
             error = "Game is full"
-            return False, 0, error
+            return False, 0, True, error
         
-        
-        self.players.append (client)
+        self.players.append(Player(client))
         self.player_count += 1
         is_full = (self.player_count == self.max_player_count)
         return True, self.player_count, is_full, None
@@ -229,7 +228,6 @@ def redirect_messages (msg, client_socket):
         elif intent == "play":
             # making a play
             pass
-        
         else:
             pass
 
@@ -239,7 +237,7 @@ print ("Starting table manager...")
 sock.listen(1)
 print ("Listening on port",SERVER_PORT,"\n")
 
-read_list = [sock]
+read_list = [sock, sys.stdin]
 
 while True:
     readable, writable, errored = select.select (read_list, [], [])
@@ -260,3 +258,5 @@ while True:
             else:
                 s.close()
                 read_list.remove (s)
+        
+                

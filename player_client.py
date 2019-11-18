@@ -5,6 +5,8 @@ import datetime
 import base64
 import os
 from sys import argv
+import sys
+import select
 
 # Select port
 if len(argv) != 2:
@@ -18,14 +20,16 @@ if int(argv[1]) < 1:
     exit()
 
 
-# User info
-USER_NAME = "nomeblabla" # placeholder, should be read from CC reader
+
 
 # Constants
 IP = "localhost"
 PORT = int(argv[1])
 SERVER_PORT = 50000
-CLIENT_PORT = 50000 + PORT
+CLIENT_PORT = PORT
+
+# User info
+client_name = "nome"+str(PORT)+"blabla" # placeholder, should be read from CC reader
 
 # Clear ports
 #os.system("kill -9 $(lsof -t -i:" + str(CLIENT_PORT) + ")")
@@ -52,11 +56,6 @@ sock.bind (CLIENT_ADDR)
 PUB_KEY = "PLACEHOLDER_PUBK"
 PRIV_KEY = "PLACEHOLDER_PRIVK"
 sv_pub_key = "PLACEHOLDER_SV_PUBK"
-
-
-#########################################################################
-## DEBUG
-
 
 
 #########################################################################
@@ -95,6 +94,34 @@ def wait_for_reply (expected):
     return reply.get(expected)
     
 
+def wait_for_reply_or_input (expected_reply):
+    read_list = [sock, sys.stdin]
+    while True:
+        readable, writable, errored = select.select (read_list, [], [])
+        for s in readable:
+            if sys.stdin in readable:
+                cmd = sys.stdin.readline()
+                if cmd:
+                    print(">>>>",cmd)
+            else:
+                reply = s.recv (BUFFER_SIZE).decode()
+                reply = msg = json.loads(reply)
+                if "error" in reply.keys():
+                    print ("ERROR:", reply.get("error"))
+                    s.close()
+                    exit()
+                return msg.get(expected_reply)
+
+
+def register_to_server():
+    msg = {
+        "intent": "register",
+        "name": client_name,
+        "pub_key": PUB_KEY}
+    msg = json.dumps(msg).encode()
+    sock.send(msg)
+    
+
 def format_game_list (game_list):
     # Formats the game list from JSON
     if not game_list:
@@ -112,9 +139,14 @@ def format_game_list (game_list):
     return new_list
 
 
+def print_game_state (game):
+    if game.state == "OPEN":
+        pass
+    pass
+
+
 def request_game_list():
-    request = {
-        "intent" : "get_game_list"}
+    request = {"intent" : "get_game_list"}
     request = json.dumps(request).encode()
     sock.sendto(request, SV_ADDR)
 
@@ -122,35 +154,46 @@ def request_game_list():
 def request_to_join_game (id):
     request = {
         "intent" : "join_game",
-        "game_id" : id,
-        "name" : USER_NAME}
+        "game_id" : id}
     request = json.dumps(request).encode()
     sock.sendto(request, SV_ADDR)
 
 
 def request_to_create_game():
-    request = {
-        "intent" : "create_game",
-        "name" : USER_NAME}
+    request = {"intent" : "create_game"}
     request = json.dumps(request).encode()
     sock.sendto(request, SV_ADDR)
 
+#########################################################################
+## Player class
+
+class Player:
+    def __init__ (self):
+        self.name = ""
+        self.pub_key = ""
+        self.deck_key = ""
+        self.num = 0
+        self.score = 0
+        self.rounds_won = 0
+        self.confirmed = False
 
 #########################################################################
-## Game functions
-class Game:
-    def __init__ (self, game_id, id=1):
-        self.id = id
-        self.game_id = game_id
+## Game class
 
-    def begin (self):
-        # Waiting for lobby to fill
-        pass
+class Game:
+    def __init__ (self, game_id, player_num=1):
+        self.players_inside = player_num
+        self.num = player_num
+        self.game_id = game_id
+        self.state = "OPEN"
+        self.other_players = []
 
     def wait_in_lobby (self):
         # Wait for players to join the lobby
-        #TODO: tornar non-blocking para ele poder sair do lobby
-        pass
+        while True:
+            print_game_state(self)
+            wait_for_reply_or_input("game_update")
+
 
     def comfirm_players (self):
         # Lobby is full - confirm you want to play
@@ -172,7 +215,7 @@ class Game:
         pass
 
     def start_game (self):
-        if self.id == 1:
+        if self.num == 1:
             self.make_play(self)
         else:
             self.wait_for_play(self)
@@ -186,18 +229,20 @@ class Game:
         
 #########################################################################
 ## Client functions
+
 class Client:
     def __init__ (self):
         pass
-
 
     def join_server (self):
         # Makes TCP connection to server
         try:
             sock.connect (SV_ADDR)
-            sv_pub_key = wait_for_reply ("pub_key")
         except:
             print ("Connection failed")
+            return
+        sv_pub_key = wait_for_reply ("pub_key")
+        register_to_server()
         
 
     def list_games (self):
@@ -212,21 +257,24 @@ class Client:
 
     def join_game (self):
         # Joins selected game
-        game_id = int(input("Game number: "))
+        while True:
+            try:
+                game_id = int(input("Game number: "))
+                break
+            except:
+                print("Not a number!")
         request_to_join_game (game_id)
         player_num = wait_for_reply ("player_num")
-        
         game = Game (game_id, player_num)
-        game.begin()
+        game.wait_in_lobby()
     
 
     def create_game (self):
         # Creates a new game
         request_to_create_game()
         game_id = wait_for_reply ("game_id")
-
         game = Game (game_id)
-        game.begin()
+        game.wait_in_lobby()
 
 
     def close (self):
@@ -245,11 +293,13 @@ class Client:
                 print()
 
 
-
 if __name__ == "__main__":
     print ("Starting client")
     c = Client()
-    c.decision_loop()
+    try:
+        c.decision_loop()
+    except socket.error:
+        sock.close()
 
 
 
