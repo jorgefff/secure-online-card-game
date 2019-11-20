@@ -47,17 +47,6 @@ def send_game_list (client_socket):
     client_socket.send(msg)
 
 
-def get_game_info (game_id, client):
-    game = games[game_id]
-    info = {
-        "game_id": game_id,
-        "title": game.title,
-        "players": game.get_players(),
-        "player_num": game.get_player_num(client),
-    }
-    return info
-
-
 def register_client (msg, client_socket):
     name = msg.get("name")
     pub_key = msg.get("pub_key")
@@ -69,24 +58,6 @@ def validate_player (action, game_id, player):
     pass
 
 
-def join_game_handler (msg, client):
-    game_id = msg.get("game_id")
-
-    if game_id in games.keys():
-        success, error = games[game_id].new_player(client)
-    else:
-        success = False
-        error = "Game not found"
-
-    if success:
-        reply = {"game_info": get_game_info(game_id, client)}
-    else:
-        reply = {"error": error}
-
-    client.send(reply)    
-    return success
-
-
 def get_new_game_id():
     global game_id_counter
     new_id = game_id_counter
@@ -94,13 +65,35 @@ def get_new_game_id():
     return new_id
 
 
+def join_game_handler (msg, client):
+    game_id = msg.get("game_id")
+    is_full = False
+
+    if game_id in games.keys():
+        game = games[game_id]
+        success, error = game.new_player(client)
+        is_full = game.is_full()
+    else:
+        success = False
+        error = "Game not found"
+
+    if success:
+        reply = {"game_info": game.get_game_info(client)}
+    else:
+        reply = {"error": error}
+
+    client.send(reply)
+    return success, is_full
+
+
 def create_game_handler (msg, client):
     game_id = get_new_game_id()
     new_game = Game(game_id)
     new_game.new_player(client)
+    
     games[game_id] = new_game
 
-    reply = {"game_info": get_game_info(game_id, client)}
+    reply = {"game_info": new_game.get_game_info(client)}
     client.send(reply)
 
 
@@ -114,26 +107,19 @@ def player_confirmation_handler (msg, client):
         error = "Game not found"
 
     if not success:
-        reply = {"confirm_players": "ok"}
-    else:
         reply = {"error": error}
 
     client.send(reply)
 
 
-def inform_of_player_confirmation (msg, client_socket):
-    pass
-
-
-def inform_of_new_player (game_id):
-    game = games[game_id]
-    player = game.players[-1]
+def broadcast_new_player (players):
+    player = players[-1]
     new_player = {
         "name": player.client.name,
         "pub_key": player.client.pub_key,
         "num": player.num}
 
-    for p in game.players[:-1]:
+    for p in players[:-1]:
         msg = {
             "game_update": {
                 "update": "new_player", 
@@ -142,6 +128,27 @@ def inform_of_new_player (game_id):
         p.client.send(msg)
 
 
+def broadcast_player_confirmation (players, pl_num):
+    for p in players:
+        msg = {
+            "game_update": {
+                "update": "player_confirmation", 
+                "player_num": pl_num}}
+        p.client.send(msg)
+
+
+def broadcast_state_change (players, new_state):
+    for p in players:
+        msg = {
+            "game_update": {
+                "update": "game_state", 
+                "game_state": new_state}}
+        p.client.send(msg)
+
+
+
+#########################################################################
+## Client functions
 class Client:
     def __init__ (self, socket, name, pub_key):
         self.socket = socket
@@ -164,6 +171,8 @@ class Client:
         return self.socket == other.socket
 
 
+#########################################################################
+## Player functions
 class Player:
     def __init__ (self, client, num):
         self.score = 0
@@ -178,6 +187,8 @@ class Player:
         return self.client == other
 
 
+#########################################################################
+## Game functions
 class Game:
     def __init__ (self, game_id, title="Hearts"):
         self.game_id = game_id
@@ -186,6 +197,11 @@ class Game:
         self.state = "OPEN"
         self.players = []
         self.player_count = 0
+
+
+    def change_state (self, new_state):
+        self.state = new_state
+        broadcast_state_change(self.players, new_state)
 
 
     def new_player (self, client):
@@ -199,13 +215,26 @@ class Game:
         
         self.player_count += 1
         self.players.append(Player(client, self.player_count))
-        
+        broadcast_new_player(self.players)
         return True, None
     
+    
+    def is_full(self):
+        return self.player_count == self.max_player_count
+
 
     def player_left (self, client):
         #TODO: remove from list, update nums
         self.player_count -=1
+        
+
+    def get_game_info (self, client):
+        return {
+            "game_id": self.game_id,
+            "title": self.title,
+            "players": self.get_players(),
+            "player_num": self.get_player_num(client)
+        }
         
 
     def get_player_num(self, client):
@@ -228,34 +257,36 @@ class Game:
         pass
 
 
-###########################################################################
+#########################################################################
+## Main server functions
 
 def redirect_messages (msg, client_socket):
     intent = msg.get("intent")
     
+    # New client
     if intent == "register":
-        # New client
         register_client (msg, client_socket)
 
+    # Registered client
     elif client_socket in clients.keys():
-        # Registered client
         client = clients[client_socket]
         
         if intent == "get_game_list":
             send_game_list (client)
     
         elif intent == "join_game":
-            success = join_game_handler (msg, client)
-            if success:
-                inform_of_new_player (msg.get("game_id"))
-
+            success, is_full = join_game_handler (msg, client)
+            if success and is_full:
+                game = games[msg.get("game_id")]
+                game.change_state("FULL")
+                    
         elif intent == "create_game":
             create_game_handler (msg, client)
         
         elif intent == "confirm_players":
             success = player_confirmation_handler (msg, client)
             if success:
-                inform_of_player_confirmation (msg, client)
+                broadcast_player_confirmation (msg, client)
             #TODO: if 4 players confirmed: game.state = "SHUFFLING"
             pass
             

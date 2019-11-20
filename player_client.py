@@ -73,12 +73,24 @@ def print_client_options():
     print ("---------------------------------")
     print ()
 
-
+# Requests the list of open games
 def request_game_list():
     request = {"intent" : "get_game_list"}
     request = json.dumps(request).encode()
     sock.sendto(request, SV_ADDR)
 
+
+# Registers on the server
+def register_to_server():
+    msg = {
+        "intent": "register",
+        "name": client_name,
+        "pub_key": PUB_KEY}
+    msg = json.dumps(msg).encode()
+    sock.send(msg)
+
+
+# Requests to join an open game
 def request_to_join_game (id):
     request = {
         "intent" : "join_game",
@@ -86,11 +98,24 @@ def request_to_join_game (id):
     request = json.dumps(request).encode()
     sock.sendto(request, SV_ADDR)
 
+
+# Requests to create a new game
 def request_to_create_game():
     request = {"intent" : "create_game"}
     request = json.dumps(request).encode()
     sock.sendto(request, SV_ADDR)
 
+
+# Confirm you want to play with these players
+def confirm_players (game_id):
+    msg = {
+        "intent": "confirm_players",
+        "game_id": game_id}
+    msg = json.dumps(msg).encode()
+    sock.sendto(msg, SV_ADDR)
+
+
+# Waits for a reply from server (blocking)
 def wait_for_reply (expected):
     received, addr = sock.recvfrom (BUFFER_SIZE)
     print ("\nReceived:", received)#DEBUG
@@ -111,6 +136,7 @@ def wait_for_reply (expected):
     return reply.get(expected)
     
 
+# Waits for either a server reply or user input (non blocking)
 def wait_for_reply_or_input (expected_reply):
     read_list = [sock, sys.stdin]
     while True:
@@ -119,7 +145,7 @@ def wait_for_reply_or_input (expected_reply):
             if sys.stdin in readable:
                 cmd = sys.stdin.readline()
                 if cmd:
-                    return None, cmd
+                    return None, cmd.strip().lower()
             else:
                 reply = s.recv (BUFFER_SIZE).decode()
                 reply = msg = json.loads(reply)
@@ -130,15 +156,7 @@ def wait_for_reply_or_input (expected_reply):
                 return msg.get(expected_reply), None
 
 
-def register_to_server():
-    msg = {
-        "intent": "register",
-        "name": client_name,
-        "pub_key": PUB_KEY}
-    msg = json.dumps(msg).encode()
-    sock.send(msg)
-
-
+# Formats the game list from JSON to readable data
 def format_game_list (game_list):
     # Formats the game list from JSON
     if not game_list:
@@ -156,31 +174,36 @@ def format_game_list (game_list):
     return new_list
 
 
+# Converts the received (JSON) player to Player object
 def json_to_player(msg):
     return Player(
         msg.get("num"),
         msg.get("name"),
         msg.get("pub_key"))
 
-def json_to_players(msg):
+
+# Converts the received (JSON) player list to a list of Player objects
+def json_to_player_lst(p_list):
     return [
         Player(
             p.get("num"),
             p.get("name"),
             p.get("pub_key")
-        ) for p in msg.get("players")]
+        ) for p in p_list]
 
+
+# Shows the current state of the game
 def print_game_state (game):
     if game.state == "OPEN":
-        print("\n\n\n\n")
-        print("------------------")
+        print("\n\n\n\n------------------")
         print("Players:")
         for p in game.players:
             print(p.num, "-", p.name)
         print("\n")
-        print("Commands: quit")
+        print("Commands: exit")
 
     elif game.state == "FULL":
+        print("\n\n\n\n------------------")
         print("Players:")
         for p in game.players:
             if p.confirmed:
@@ -189,23 +212,8 @@ def print_game_state (game):
                 confirmed = "No"
             print(p.num, "-", p.name," - Confirmed:",confirmed)
         print("\n")
-        print("Commands: confirm, quit")
+        print("Commands: confirm, exit")
 
-
-
-def update_game (game, msg):
-
-    el
-
-    elif upd_type == "player_left":
-        pass
-    
-    elif upd_type == "game_state":
-        game.state = msg.get("game_state")
-
-
-def process_cmd (game, cmd):
-    pass
 
         
 
@@ -234,9 +242,25 @@ class Game:
         self.title = info.get("title")
         self.num = info.get("num")
         self.state = "OPEN"
-        self.players = json_to_players(info.get("players"))
+        self.players = json_to_player_lst(info.get("players"))
         self.players_inside = len(self.players)
         self.max_players = 4
+
+
+    def new_player (self, player):
+        new_player = json_to_player(player)
+        self.players.append(new_player)
+        self.players_inside = len(self.players)
+    
+
+    def player_left (self, player_num):
+        # Remove player that left
+        # Sort
+        self.players_inside = len(self.players)
+
+
+    def player_confirmed (self, player_num):
+        self.players[player_num - 1].confirmed = True
 
 
     def wait_in_lobby (self):
@@ -244,9 +268,10 @@ class Game:
         while self.state in ["OPEN","FULL"]:
             print_game_state(self)
             msg, cmd = wait_for_reply_or_input("game_update")
-            
+            # Received a message from server
             if msg:
                 update = msg.get("update")
+            
                 if update  == "new_player":
                     self.new_player(msg.get("new_player"))
                 elif update == "player_confirmation":
@@ -255,20 +280,18 @@ class Game:
                     pass
                 elif update == "game_state":
                     self.state = msg.get("game_state")
-            
-            if cmd:
-                pass
 
-    def new_player (self, player):
-        # Converts new_player from JSON to Player class
-        self.players.append(json_to_player(player))
-        self.players_inside = len(self.players)
-    
-    def player_left (self, player_num):
-        pass
-        
-    def player_confirmed (self, player_num):
-        self.players[player_num - 1].confirmed = True
+            # User input
+            elif cmd:
+                if cmd == "confirm":
+                    confirm_players(self.game_id)
+                elif cmd == "exit":
+                    #TODO: request to exit game and not close socket / client
+                    sock.close()
+                    exit()
+
+        self.shuffling()
+
 
     def shuffling (self):
         # 5% chance to take a card
@@ -304,7 +327,6 @@ class Client:
         pass
 
     def join_server (self):
-        # Makes TCP connection to server
         try:
             sock.connect (SV_ADDR)
         except:
@@ -312,9 +334,9 @@ class Client:
             return
         sv_pub_key = wait_for_reply ("pub_key")
         register_to_server()
-
+    
+    
     def list_games (self):
-        # Lists available games
         request_game_list()
         game_list = wait_for_reply ("get_game_list")
         fmtd_game_list = format_game_list (game_list)
@@ -322,8 +344,8 @@ class Client:
         for game in fmtd_game_list:
             print ("   "+game)
 
+
     def join_game (self):
-        # Joins selected game
         while True:
             try:
                 game_id = int(input("Game number: "))
@@ -335,19 +357,20 @@ class Client:
         game = Game(game_info)
         game.wait_in_lobby()
 
+
     def create_game (self):
-        # Creates a new game
         request_to_create_game()
         game_info = wait_for_reply ("game_info")
         game = Game(game_info)
         game.wait_in_lobby()
 
+
     def close (self):
         sock.close()
         exit()
 
+    
     def decision_loop (self):
-        # Ask player what he wants to do
         opts = [self.close, self.join_server, self.list_games, self.join_game, self.create_game]
         while (True):
             print_client_options()
