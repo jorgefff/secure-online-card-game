@@ -57,6 +57,8 @@ PUB_KEY = "PLACEHOLDER_PUBK"
 PRIV_KEY = "PLACEHOLDER_PRIVK"
 sv_pub_key = "PLACEHOLDER_SV_PUBK"
 
+# Commands available at the current state of the game
+game_cmds = ["exit"]
 
 #########################################################################
 ## Auxiliary functions
@@ -107,7 +109,10 @@ def request_to_create_game():
 
 
 # Confirm you want to play with these players
-def confirm_players (game_id):
+def send_pl_confirmation (game_id):
+    #TODO: 
+    # "The croupier will only start the game after getting a signed statement
+    # from all players including the identity of the opponents"
     msg = {
         "intent": "confirm_players",
         "game_id": game_id}
@@ -145,7 +150,11 @@ def wait_for_reply_or_input (expected_reply):
             if sys.stdin in readable:
                 cmd = sys.stdin.readline()
                 if cmd:
-                    return None, cmd.strip().lower()
+                    cmd = cmd.strip().lower()
+                    if cmd in game_cmds:
+                        return None, cmd
+                    else:
+                        print ("Invalid command!")
             else:
                 reply = s.recv (BUFFER_SIZE).decode()
                 reply = msg = json.loads(reply)
@@ -193,9 +202,9 @@ def json_to_player_lst(p_list):
 
 
 # Shows the current state of the game
-def print_game_state (game):
+def print_lobby_state (game):
     if game.state == "OPEN":
-        print("\n\n\n\n------------------")
+        print("\n\n\n\n\n------------------")
         print("Players:")
         for p in game.players:
             print(p.num, "-", p.name)
@@ -203,7 +212,7 @@ def print_game_state (game):
         print("Commands: exit")
 
     elif game.state == "FULL":
-        print("\n\n\n\n------------------")
+        print("\n\n\n\n\n------------------")
         print("Players:")
         for p in game.players:
             if p.confirmed:
@@ -216,6 +225,22 @@ def print_game_state (game):
 
 
         
+        
+#########################################################################
+## Card class
+
+class Card:
+    def __init__(self):
+        pass        
+
+
+#########################################################################
+## Deck class
+
+class Deck:
+    def __init__(self):
+        pass
+
 
 #########################################################################
 ## Player class
@@ -246,6 +271,21 @@ class Game:
         self.players_inside = len(self.players)
         self.max_players = 4
 
+    def start(self):
+        self.wait_in_lobby()
+        self.deck_encrypthing()
+        self.card_selection()
+        self.commit_deck()
+        self.start_game()
+
+    def update_state (self, state):
+        self.state = state
+        if state == "OPEN":
+            game_cmds = ["exit"]
+        elif state == "FULL":
+            game_cmds = ["exit", "confirm"]
+        else:
+            game_cmds = []
 
     def new_player (self, player):
         new_player = json_to_player(player)
@@ -266,34 +306,39 @@ class Game:
     def wait_in_lobby (self):
         # Wait for players to join the lobby
         while self.state in ["OPEN","FULL"]:
-            print_game_state(self)
+        
+            print_lobby_state(self)
             msg, cmd = wait_for_reply_or_input("game_update")
+        
             # Received a message from server
             if msg:
                 update = msg.get("update")
-            
                 if update  == "new_player":
                     self.new_player(msg.get("new_player"))
+
                 elif update == "player_confirmation":
                     self.player_confirmed(msg.get("player_num"))
+
                 elif update == "player_left":
-                    pass
+                    self.player_left(msg.get("player_num"))
+
                 elif update == "game_state":
-                    self.state = msg.get("game_state")
+                    self.update_state(msg.get("game_state"))
 
             # User input
             elif cmd:
                 if cmd == "confirm":
-                    confirm_players(self.game_id)
+                    send_pl_confirmation(self.game_id)
                 elif cmd == "exit":
                     #TODO: request to exit game and not close socket / client
                     sock.close()
                     exit()
+        
 
-        self.shuffling()
+    def deck_encrypthing (self):
+        # If player_1: receive from croupier
+        # else wait for player_deck
 
-
-    def shuffling (self):
         # 5% chance to take a card
         # if no card taken:
         #   Swap / or not
@@ -306,17 +351,6 @@ class Game:
         # Hash deck
         pass
 
-    def start_game (self):
-        if self.num == 1:
-            self.make_play(self)
-        else:
-            self.wait_for_play(self)
-    
-    def make_play (self):
-        pass
-
-    def wait_for_play (self):
-        pass
 
         
 #########################################################################
@@ -380,7 +414,7 @@ class Client:
                 print()
 
 
-if __name__ == "__main__":
+def main():
     print ("Starting client")
     c = Client()
     try:
@@ -388,5 +422,5 @@ if __name__ == "__main__":
     except socket.error:
         sock.close()
 
-
-
+if __name__ == "__main__":
+    main()

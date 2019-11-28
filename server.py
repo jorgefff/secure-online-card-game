@@ -232,8 +232,9 @@ class Game:
         return {
             "game_id": self.game_id,
             "title": self.title,
-            "players": self.get_players(),
-            "player_num": self.get_player_num(client)
+            "player_num": self.get_player_num(client),
+            "players": self.get_players()
+            
         }
         
 
