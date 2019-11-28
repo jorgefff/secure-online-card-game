@@ -338,13 +338,15 @@ class Game:
     def deck_encrypthing (self):
         # If player_1: receive from croupier
         # else wait for player_deck
+        # pass deck
+        pass
 
+    def card_selection(self):
         # 5% chance to take a card
         # if no card taken:
         #   Swap / or not
         # Shuffle
         # Pass the cards
-        # Bit commit        
         pass
 
     def commit_deck (self):
@@ -412,6 +414,7 @@ class Client:
             if opt.isdigit() and int(opt) >= 0 and int(opt) < len(opts):
                 opts [int(opt)]()
                 print()
+
 
 
 def main():
