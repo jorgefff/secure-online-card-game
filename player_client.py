@@ -7,6 +7,7 @@ import os
 from sys import argv
 import sys
 import select
+from random import random
 
 # Select port
 if len(argv) != 2:
@@ -22,11 +23,15 @@ if int(argv[1]) < 1:
 
 
 
-# Constants
+# Address constants
 IP = "localhost"
 PORT = int(argv[1])
 SERVER_PORT = 50000
 CLIENT_PORT = PORT
+
+# Chances
+PICK_CHANCE = 0.05
+SWAP_CHANCE = 0.5
 
 # User info
 client_name = "nome_"+str(PORT)[-1]+" blabla" # placeholder, should be read from CC reader
@@ -79,7 +84,7 @@ def print_client_options():
 def request_game_list():
     request = {"intent" : "get_game_list"}
     request = json.dumps(request).encode()
-    sock.sendto(request, SV_ADDR)
+    sock.send(request)
 
 
 # Registers on the server
@@ -98,14 +103,14 @@ def request_to_join_game (id):
         "intent" : "join_game",
         "game_id" : id}
     request = json.dumps(request).encode()
-    sock.sendto(request, SV_ADDR)
+    sock.send(request)
 
 
 # Requests to create a new game
 def request_to_create_game():
     request = {"intent" : "create_game"}
     request = json.dumps(request).encode()
-    sock.sendto(request, SV_ADDR)
+    sock.send(request)
 
 
 # Confirm you want to play with these players
@@ -117,7 +122,7 @@ def send_pl_confirmation (game_id):
         "intent": "confirm_players",
         "game_id": game_id}
     msg = json.dumps(msg).encode()
-    sock.sendto(msg, SV_ADDR)
+    sock.send(msg)
 
 
 # Waits for a reply from server (blocking)
@@ -158,6 +163,7 @@ def wait_for_reply_or_input (expected_reply):
             else:
                 reply = s.recv (BUFFER_SIZE).decode()
                 reply = msg = json.loads(reply)
+                print("Received:",reply)
                 if "error" in reply.keys():
                     print ("ERROR:", reply.get("error"))
                     s.close()
@@ -201,6 +207,20 @@ def json_to_player_lst(p_list):
         ) for p in p_list]
 
 
+# Get next player
+def next_player(game):
+    idx = game.player_num
+    if idx == 4:
+        idx = 0
+    player = game.players[idx]
+    return player
+
+
+# Get previous player
+def prev_player(game):
+    pass
+
+
 # Shows the current state of the game
 def print_lobby_state (game):
     if game.state == "OPEN":
@@ -224,7 +244,29 @@ def print_lobby_state (game):
         print("Commands: confirm, exit")
 
 
-        
+def encrypt_cards(deck, key=None):
+    #TODO
+    # If None, use own key
+    # Else use key
+    return deck
+
+def shuffle(deck):
+    #TODO
+    return deck
+
+def relay_deck(game, deck):
+    next_p = next_player(game)
+    key = next_player.pub_key
+    deck = encrypt_cards(deck,key)
+
+    msg = {
+        "intent": "relay_deck",
+        "relay_to": next_p.player_num,
+        "deck": deck}
+
+    msg = json.dumps(msg).encode()
+    sock.sendto(msg, SV_ADDR)
+    
         
 #########################################################################
 ## Card class
@@ -258,6 +300,8 @@ class Player:
     def set_num (self, num):
         self.num = num
 
+        
+
 #########################################################################
 ## Game class
 
@@ -265,7 +309,7 @@ class Game:
     def __init__ (self, info):
         self.game_id = info.get("game_id")
         self.title = info.get("title")
-        self.num = info.get("num")
+        self.player_num = info.get("num")
         self.state = "OPEN"
         self.players = json_to_player_lst(info.get("players"))
         self.players_inside = len(self.players)
@@ -278,6 +322,7 @@ class Game:
         self.commit_deck()
         self.start_game()
 
+
     def update_state (self, state):
         self.state = state
         if state == "OPEN":
@@ -286,6 +331,7 @@ class Game:
             game_cmds = ["exit", "confirm"]
         else:
             game_cmds = []
+
 
     def new_player (self, player):
         new_player = json_to_player(player)
@@ -336,24 +382,35 @@ class Game:
         
 
     def deck_encrypthing (self):
-        # If player_1: receive from croupier
-        # else wait for player_deck
-        # pass deck
-        pass
+        deck_passing = wait_for_reply("deck_encrypting")
+        deck = deck_passing.get("deck")
+        shuffle(deck)
+        encrypt_cards(deck)
+        relay_deck(self, deck)
+
 
     def card_selection(self):
-        # 5% chance to take a card
-        # if no card taken:
-        #   Swap / or not
+        deck_passing = wait_for_reply("card_selection")
+        deck = deck_passing.get("deck")
+        if random() < PICK_CHANCE:
+            pass
+        elif random() < SWAP_CHANCE:
+            pass
+        shuffle(deck)
+
         # Shuffle
         # Pass the cards
         pass
 
-    def commit_deck (self):
+    def commit_deck (self): # Antes ou depois de encryptar ??
         # Hash deck
         pass
 
+    def share_deck_key(self):
+        pass
 
+    def decrypt_deck(self):
+        pass
         
 #########################################################################
 ## Client functions

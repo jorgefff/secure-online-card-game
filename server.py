@@ -146,6 +146,18 @@ def broadcast_state_change (players, new_state):
         p.client.send(msg)
 
 
+def generate_deck():
+    deck = []
+    suits = ["Spades", "Clubs", "Hearts", "Diamonds"]
+    specials = ["A", "K", "Q", "J"]
+    for suit in suits:
+        for sp in specials:
+            deck.append(suit + "-" + sp)
+        for n in range(2,11):
+            deck.append(suit + "-" + n)
+    return deck
+        
+        
 
 #########################################################################
 ## Client functions
@@ -234,7 +246,6 @@ class Game:
             "title": self.title,
             "player_num": self.get_player_num(client),
             "players": self.get_players()
-            
         }
         
 
@@ -291,12 +302,12 @@ def redirect_messages (msg, client_socket):
             #TODO: if 4 players confirmed: game.state = "SHUFFLING"
             pass
             
-        elif intent == "?":
-            # shuffling
-            #   proxying deck
-            # commiting deck
+        elif intent == "deck_encrypting":
             pass
-        
+
+        elif intent == "":
+            pass
+
         elif intent == "play":
             # making a play
             pass
