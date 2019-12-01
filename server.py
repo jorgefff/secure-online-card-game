@@ -43,7 +43,7 @@ def send_game_list (client_socket):
                 "player_count": game.player_count,
                 "max_players": game.max_player_count})
 
-    msg = {"get_game_list": game_list}
+    msg = {game_list}
     client_socket.send(msg)
 
 
@@ -78,7 +78,7 @@ def join_game_handler (msg, client):
         error = "Game not found"
 
     if success:
-        reply = {"game_info": game.get_game_info(client)}
+        reply = {game.get_game_info(client)}
     else:
         reply = {"error": error}
 
@@ -93,7 +93,7 @@ def create_game_handler (msg, client):
     
     games[game_id] = new_game
 
-    reply = {"game_info": new_game.get_game_info(client)}
+    reply = {new_game.get_game_info(client)}
     client.send(reply)
 
 
@@ -121,19 +121,16 @@ def broadcast_new_player (players):
 
     for p in players[:-1]:
         msg = {
-            "game_update": {
-                "update": "new_player", 
-                "new_player": new_player}}
-        
+            "update": "new_player", 
+            "new_player": new_player}
         p.client.send(msg)
 
 
 def broadcast_player_confirmation (players, pl_num):
     for p in players:
         msg = {
-            "game_update": {
-                "update": "player_confirmation", 
-                "player_num": pl_num}}
+            "update": "player_confirmation", 
+            "player_num": pl_num}
         p.client.send(msg)
 
 
@@ -225,8 +222,8 @@ class Game:
             error = "Game is full"
             return False, error
         
-        self.player_count += 1
         self.players.append(Player(client, self.player_count))
+        self.player_count += 1
         broadcast_new_player(self.players)
         return True, None
     

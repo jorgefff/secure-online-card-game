@@ -7,16 +7,26 @@ import os
 from sys import argv
 import sys
 import select
+import random
 from random import random
 
 # Select port
-if len(argv) != 2:
-    print ("usage: python3 player_client.py <PORT_NUMBER>")
+AUTO = False
+AUTO_PORTS = [51001,51002,51003,51004]
+if len(argv) < 2:
+    print ("usages:")
+    print("python3 player_client.py <PORT_NUMBER>")
+    print("python3 player_client.py AUTO <1-4>")
     exit()
-if not argv[1].isdigit:
+if argv[1].lower() == "auto":
+    if not argv[2].isdigit:
+        print("python3 player_client.py AUTO <1-4>")
+        exit()
+    AUTO = True
+elif not argv[1].isdigit:
     print ("Port argument needs to be an integer")
     exit()
-if int(argv[1]) < 1:
+elif int(argv[1]) < 1:
     print ("port number needs to be > 0")
     exit()
 
@@ -25,7 +35,10 @@ if int(argv[1]) < 1:
 
 # Address constants
 IP = "localhost"
-PORT = int(argv[1])
+if AUTO:
+    PORT = AUTO_PORTS[int(argv[2])]
+else:
+    PORT = int(argv[1])
 SERVER_PORT = 50000
 CLIENT_PORT = PORT
 
@@ -126,7 +139,7 @@ def send_pl_confirmation (game_id):
 
 
 # Waits for a reply from server (blocking)
-def wait_for_reply (expected):
+def wait_for_reply (expected=None):
     received, addr = sock.recvfrom (BUFFER_SIZE)
     print ("\nReceived:", received)#DEBUG
     
@@ -143,11 +156,11 @@ def wait_for_reply (expected):
         sock.close()
         exit()
 
-    return reply.get(expected)
+    return reply
     
 
 # Waits for either a server reply or user input (non blocking)
-def wait_for_reply_or_input (expected_reply):
+def wait_for_reply_or_input (expected_reply=None):
     read_list = [sock, sys.stdin]
     while True:
         readable, writable, errored = select.select (read_list, [], [])
@@ -168,7 +181,7 @@ def wait_for_reply_or_input (expected_reply):
                     print ("ERROR:", reply.get("error"))
                     s.close()
                     exit()
-                return msg.get(expected_reply), None
+                return msg, None
 
 
 # Formats the game list from JSON to readable data
@@ -210,7 +223,7 @@ def json_to_player_lst(p_list):
 # Get next player
 def next_player(game):
     idx = game.player_num
-    if idx == 4:
+    if idx == 3:
         idx = 0
     player = game.players[idx]
     return player
@@ -221,13 +234,22 @@ def prev_player(game):
     pass
 
 
+# Returns a random player
+def random_player(game):
+    options = [0, 1, 2, 3]
+    options.remove(game.num)
+    rand_num = random.choice(options)
+    return game.all_players[rand_num]
+
+
+
 # Shows the current state of the game
 def print_lobby_state (game):
     if game.state == "OPEN":
         print("\n\n\n\n\n------------------")
         print("Players:")
         for p in game.players:
-            print(p.num, "-", p.name)
+            print(p.num+1, "-", p.name)
         print("\n")
         print("Commands: exit")
 
@@ -239,7 +261,7 @@ def print_lobby_state (game):
                 confirmed = "Yes"
             else:
                 confirmed = "No"
-            print(p.num, "-", p.name," - Confirmed:",confirmed)
+            print(p.num+1, "-", p.name," - Confirmed:",confirmed)
         print("\n")
         print("Commands: confirm, exit")
 
@@ -250,14 +272,24 @@ def encrypt_cards(deck, key=None):
     # Else use key
     return deck
 
+
+def decrypt_cards(deck):
+    #TODO
+    return deck
+
+
 def shuffle(deck):
     #TODO
     return deck
 
-def relay_deck(game, deck):
-    next_p = next_player(game)
-    key = next_player.pub_key
-    deck = encrypt_cards(deck,key)
+def relay_deck(game, deck, player=None):
+    if player == None:
+        next_p = next_player(game)
+    else:
+        next_p = player
+
+    key = next_p.pub_key
+    deck = encrypt_cards(deck, key)
 
     msg = {
         "intent": "relay_deck",
@@ -265,9 +297,12 @@ def relay_deck(game, deck):
         "deck": deck}
 
     msg = json.dumps(msg).encode()
-    sock.sendto(msg, SV_ADDR)
+    sock.send(msg)
+
+
     
         
+
 #########################################################################
 ## Card class
 
@@ -310,16 +345,22 @@ class Game:
         self.game_id = info.get("game_id")
         self.title = info.get("title")
         self.player_num = info.get("num")
+        self.deck = []
+        self.deck_key = "None" #TODO
         self.state = "OPEN"
-        self.players = json_to_player_lst(info.get("players"))
-        self.players_inside = len(self.players)
+        self.all_players = json_to_player_lst(info.get("players")) # separar entre other players e self?
+        self.pl_count = len(self.all_players)
         self.max_players = 4
+        
 
     def start(self):
         self.wait_in_lobby()
         self.deck_encrypthing()
         self.card_selection()
-        self.commit_deck()
+        self.share_deck_key()
+        self.get_deck_keys()
+        self.decrypt_deck() #TODO
+        self.commit_deck() # TODO: antes ou depois de decrypt?
         self.start_game()
 
 
@@ -335,26 +376,32 @@ class Game:
 
     def new_player (self, player):
         new_player = json_to_player(player)
-        self.players.append(new_player)
-        self.players_inside = len(self.players)
+        self.all_players.append(new_player)
+        self.pl_count = len(self.all_players)
     
 
-    def player_left (self, player_num):
-        # Remove player that left
-        # Sort
-        self.players_inside = len(self.players)
-
+    def player_left (self, p_num):
+        self.all_players.pop(p_num)
+        self.pl_count = len(self.all_players)
+        for i in range(p_num, self.pl_count):
+            self.players[i].player_num = i
+            
 
     def player_confirmed (self, player_num):
-        self.players[player_num - 1].confirmed = True
+        self.players[player_num].confirmed = True
 
 
     def wait_in_lobby (self):
         # Wait for players to join the lobby
+        AUTO_ONCE = True
         while self.state in ["OPEN","FULL"]:
-        
+            # Automatically send confirmation once
+            if AUTO and AUTO_ONCE and self.state == "FULL":
+                send_pl_confirmation(self.game_id)
+                AUTO_ONCE = False
+
             print_lobby_state(self)
-            msg, cmd = wait_for_reply_or_input("game_update")
+            msg, cmd = wait_for_reply_or_input()
         
             # Received a message from server
             if msg:
@@ -382,36 +429,65 @@ class Game:
         
 
     def deck_encrypthing (self):
-        deck_passing = wait_for_reply("deck_encrypting")
+        deck_passing = wait_for_reply()
         deck = deck_passing.get("deck")
-        shuffle(deck)
         encrypt_cards(deck)
+        shuffle(deck)
         relay_deck(self, deck)
 
 
     def card_selection(self):
-        deck_passing = wait_for_reply("card_selection")
-        deck = deck_passing.get("deck")
-        if random() < PICK_CHANCE:
-            pass
-        elif random() < SWAP_CHANCE:
-            pass
-        shuffle(deck)
+        while len(self.deck) < 13:
+            deck_passing = wait_for_reply()
+            deck = deck_passing.get("deck")
+            if random() < PICK_CHANCE:
+                # Pick one
+                deck_size = len(deck)
+                pick = random.randrange(0, deck_size)
+                card = deck.pop(pick)
+                self.deck.append(card)
+            elif len(self.deck) > 0 and random() < SWAP_CHANCE:
+                # Swap a card
+                pass
 
-        # Shuffle
-        # Pass the cards
-        pass
+            # Shuffle
+            shuffle(deck)
+            # Send to random player
+            player = random_player(self)
+            relay_deck(self, deck, player)
 
-    def commit_deck (self): # Antes ou depois de encryptar ??
-        # Hash deck
-        pass
 
     def share_deck_key(self):
-        pass
+        msg = {
+            "intent": "share_deck_key",
+            "deck_key": self.deck_key}
+        msg = json.dumps(msg).encode()
+        sock.send(msg)
+
+
+    def get_deck_keys(self):
+        reply = wait_for_reply()
+        keys = reply.get("keys")
+        for i in range(0, self.pl_count):
+            self.all_players[i].pub_key = keys.get(i)
+
 
     def decrypt_deck(self):
+        for i in range(0, self.pl_count):
+            key = self.all_players[i].pub_key
+            decrypt_cards(self.deck, key)
+
+
+    def commit_deck(self):
+        # Hash deck
+        # Send
         pass
+
+
+    def start_game(self):
+        print("The game is starting!")
         
+
 #########################################################################
 ## Client functions
 
@@ -425,35 +501,37 @@ class Client:
         except:
             print ("Connection failed")
             return
-        sv_pub_key = wait_for_reply ("pub_key")
+        reply = wait_for_reply ()
+        sv_pub_key = reply.get("pub_key")
         register_to_server()
     
     
     def list_games (self):
         request_game_list()
-        game_list = wait_for_reply ("get_game_list")
+        game_list = wait_for_reply ()
         fmtd_game_list = format_game_list (game_list)
         print ("Games:")
         for game in fmtd_game_list:
             print ("   "+game)
 
 
-    def join_game (self):
-        while True:
-            try:
-                game_id = int(input("Game number: "))
-                break
-            except:
-                print("Not a number!")
+    def join_game (self,game_id=None):
+        if game_id == None:
+            while True:
+                try:
+                    game_id = int(input("Game number: "))
+                    break
+                except:
+                    print("Not a number!")
         request_to_join_game (game_id)
-        game_info = wait_for_reply ("game_info")
+        game_info = wait_for_reply ()
         game = Game(game_info)
         game.wait_in_lobby()
 
 
     def create_game (self):
         request_to_create_game()
-        game_info = wait_for_reply ("game_info")
+        game_info = wait_for_reply ()
         game = Game(game_info)
         game.wait_in_lobby()
 
@@ -482,5 +560,32 @@ def main():
     except socket.error:
         sock.close()
 
+
+def automatic_main():
+    print("Starting automatic client")
+    c = Client()
+    print("Connecting...")
+    c.join_server()
+    time.sleep(1)
+
+    c.list_games()
+    time.sleep(1)
+    
+    if PORT == AUTO_PORTS[0]:
+        c.list_games()
+        time.sleep(1)
+        print("\nCreating game")
+        c.create_game()
+    else:
+        c.list_games()
+        time.sleep(2)
+        print("Joining game")
+        time.sleep(3)
+        c.join_game(0)
+
+
 if __name__ == "__main__":
-    main()
+    if AUTO:
+        automatic_main()
+    else:
+        main()
