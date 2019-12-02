@@ -27,13 +27,13 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.bind(SV_ADDR)
 
 
-def send_pub_key (client_socket):
+def send_pub_key( client_socket ):
     msg = {"pub_key" : sv_pub_key}
-    msg = json.dumps(msg).encode()
+    msg = json.dumps(msg).encode().ljust(BUFFER_SIZE, b' ')
     client_socket.send(msg)
 
 
-def send_game_list (client_socket):
+def send_game_list( client_socket ):
     game_list = []
     for game in games.values():
         if game.state == "OPEN":
@@ -43,19 +43,15 @@ def send_game_list (client_socket):
                 "player_count": game.player_count,
                 "max_players": game.max_player_count})
 
-    msg = {game_list}
+    msg = {"game_list": game_list}
     client_socket.send(msg)
 
 
-def register_client (msg, client_socket):
+def register_client( msg, client_socket ):
     name = msg.get("name")
     pub_key = msg.get("pub_key")
     new_client = Client (client_socket, name, pub_key)
     clients[client_socket] = new_client
-    
-
-def validate_player (action, game_id, player):
-    pass
 
 
 def get_new_game_id():
@@ -64,55 +60,8 @@ def get_new_game_id():
     game_id_counter += 1
     return new_id
 
-
-def join_game_handler (msg, client):
-    game_id = msg.get("game_id")
-    is_full = False
-
-    if game_id in games.keys():
-        game = games[game_id]
-        success, error = game.new_player(client)
-        is_full = game.is_full()
-    else:
-        success = False
-        error = "Game not found"
-
-    if success:
-        reply = {game.get_game_info(client)}
-    else:
-        reply = {"error": error}
-
-    client.send(reply)
-    return success, is_full
-
-
-def create_game_handler (msg, client):
-    game_id = get_new_game_id()
-    new_game = Game(game_id)
-    new_game.new_player(client)
     
-    games[game_id] = new_game
-
-    reply = {new_game.get_game_info(client)}
-    client.send(reply)
-
-
-def player_confirmation_handler (msg, client):
-    game_id = msg.get("game_id")
-    
-    if game_id in games.keys():
-        success, error = games[game_id].confirm_player(client)
-    else:
-        success = False
-        error = "Game not found"
-
-    if not success:
-        reply = {"error": error}
-
-    client.send(reply)
-
-
-def broadcast_new_player (players):
+def broadcast_new_player( players ):
     player = players[-1]
     new_player = {
         "name": player.client.name,
@@ -121,20 +70,22 @@ def broadcast_new_player (players):
 
     for p in players[:-1]:
         msg = {
-            "update": "new_player", 
-            "new_player": new_player}
+            "game_update": {
+                "update": "new_player", 
+                "new_player": new_player}}
         p.client.send(msg)
 
 
-def broadcast_player_confirmation (players, pl_num):
+def broadcast_player_confirmation( players, pl_num ):
     for p in players:
         msg = {
-            "update": "player_confirmation", 
-            "player_num": pl_num}
+            "game_update": {
+                "update": "player_confirmation", 
+                "player_num": pl_num}}
         p.client.send(msg)
 
 
-def broadcast_state_change (players, new_state):
+def broadcast_state_change( players, new_state ):
     for p in players:
         msg = {
             "game_update": {
@@ -143,18 +94,142 @@ def broadcast_state_change (players, new_state):
         p.client.send(msg)
 
 
+def broadcast_deck_keys( players):
+    keys = {}
+    for i in range(0, len(players)):
+        keys[i] = players[i].deck_key
+    
+    keys = {"keys": keys}
+
+    for p in players:
+        p.send( keys )
+
+
 def generate_deck():
     deck = []
     suits = ["Spades", "Clubs", "Hearts", "Diamonds"]
     specials = ["A", "K", "Q", "J"]
     for suit in suits:
         for sp in specials:
-            deck.append(suit + "-" + sp)
-        for n in range(2,11):
-            deck.append(suit + "-" + n)
+            deck.append( suit + "-" + sp )
+        for n in range( 2,11 ):
+            deck.append( suit + "-" + str( n ))
     return deck
+
+
+
+def join_game_handler (msg, client):
+    game_id = msg.get("game_id")
+    if game_id not in games.keys():
+        reply = {"error": "Game not found"}
+        client.send(reply)
+        return
+    
+    game = games[game_id]
+    error = game.new_player(client)
+    
+    if error:
+        reply = {"error": error}
+        client.send(reply)
+        return    
+    
+    reply = {"game_info": game.get_game_info(client)}
+    client.send(reply)
+    
+    broadcast_new_player(game.players)
+
+    if game.is_full():
+        game.state = "FULL"
+        broadcast_state_change( game.players, "FULL" )
         
+
+def create_game_handler (msg, client):
+    game_id = get_new_game_id()
+    new_game = Game(game_id)
+    new_game.new_player(client)
+    
+    games[game_id] = new_game
+
+    reply = {"game_info": new_game.get_game_info(client)}
+    client.send(reply)
+
+
+def player_confirmation_handler (msg, client):
+    game_id = msg.get("game_id")
+    if game_id not in games.keys():
+        reply = {"error": "Game not found"}
+        client.send(reply)
+        return
+
+    game = games[game_id]
+    error = game.confirm_player(client)
+    
+    if error:
+        reply = {"error": error}
+        client.send(reply)
+        return
+    
+    pl_num = game.get_player_num( client )
+    broadcast_player_confirmation( game.players, pl_num )
+    
+    if game.all_confirmed():
+        broadcast_state_change(game.players, "SHUFFLE")
+        deck = generate_deck()
+        msg = {"deck": deck}
+        game.players[0].send(msg)
+    
+
+def deck_relay_handler (msg, client):
+    game_id = msg.get("game_id")
+    if game_id not in games.keys():
+        reply = {"error": "Game not found"}
+        client.send(reply)
+        return
+    
+    #TODO: verify players
+    #TODO: verify relays
+    game = games[game_id]
+    relay_to = msg.get("relay_to")
+    game.players[relay_to].send(msg)
         
+
+def deck_key_sharing_handler(msg, client):
+    game_id = msg.get("game_id")
+    if game_id not in games.keys():
+        reply = {"error": "Game not found"}
+        client.send(reply)
+        return
+    
+    game = games[ game_id ]
+    error = game.add_deck_key( client, msg.get("deck_key") )
+
+    if error:
+        reply = {"error": error}
+        client.send(reply)
+        return
+
+    if game.all_deck_keys():
+        broadcast_deck_keys(game.players)
+        game.state = "BIT_COMMIT"
+
+
+def bit_commit_handler( msg, client ):
+    game_id = msg.get("game_id")
+    if game_id not in games.keys():
+        reply = {"error": "Game not found"}
+        client.send(reply)
+        return
+
+    game = games[ game_id ]
+    commit = msg.get("bit_commit")
+    error = game.add_commit( client, commit )
+
+    if error:
+        reply = {"error": error}
+        client.send(reply)
+        return
+
+
 
 #########################################################################
 ## Client functions
@@ -166,12 +241,12 @@ class Client:
         self.sv_pub_key = sv_pub_key # if theres a unique sv_pub_key per client
 
     def send (self, msg):
-        msg = json.dumps(msg).encode()
+        msg = json.dumps(msg).encode().ljust(BUFFER_SIZE, b' ')
         #TODO: error handling
         try:
             self.socket.send(msg)
         except socket.error:
-            print("Client is disconnected!")
+            print("Client has disconnected!")
 
 
     def __eq__(self, other):
@@ -188,6 +263,8 @@ class Player:
         self.rounds_won = 0
         self.client = client        
         self.num = num
+        self.confirmed = False
+        self.commit = None
 
     def set_num (self, num):
         self.num = num
@@ -206,34 +283,47 @@ class Game:
         self.state = "OPEN"
         self.players = []
         self.player_count = 0
-
-
-    def change_state (self, new_state):
-        self.state = new_state
-        broadcast_state_change(self.players, new_state)
-
+        self.players_confirmed = 0
+        self.deck_keys = 0
+        self.commits = 0
 
     def new_player (self, client):
         if client in self.players:
-            error = "Already inside"
-            return False, error
+            return "Already inside"
             
         if self.player_count >= self.max_player_count:
-            error = "Game is full"
-            return False, error
+            return "Game is full"
         
         self.players.append(Player(client, self.player_count))
         self.player_count += 1
-        broadcast_new_player(self.players)
-        return True, None
     
+        return None
+    
+
+    def player_exists (self, client):
+        return client in self.players
+        
     
     def is_full(self):
         return self.player_count == self.max_player_count
 
 
+    def all_confirmed(self):
+        return self.players_confirmed == self.max_player_count
+
+
+    def all_deck_keys(self):
+        return self.deck_keys == self.max_player_count
+
+
+    def all_commits(self):
+        return self.commits == self.max_player_count
+
+
     def player_left (self, client):
-        #TODO: remove from list, update nums
+        for p in self.players:
+            p.confrimed = False
+        self.players_confirmed = 0
         self.player_count -=1
         
 
@@ -247,8 +337,12 @@ class Game:
         
 
     def get_player_num(self, client):
-        idx = self.players.index(client)
-        return self.players[idx].num
+        return self.players.index(client)
+
+
+    def get_player( self, client ):
+        i = self.players.index(client)
+        return self.players[i]
 
 
     def get_players(self):
@@ -261,10 +355,51 @@ class Game:
         return p_list
         
 
-    def confirm_player (self, player):
-        #TODO: verify: player is inside & game.status
-        pass
+    def confirm_player (self, client):
+        if client not in self.players:
+            return "Player is not in this game"
+        
+        if self.state != "FULL":
+            return "Action not valid in current game state"
 
+        player = self.get_player( client)
+        if player.confirmed:
+            return "Player already confirmed"
+        
+        player.confirmed = True
+        self.players_confirmed += 1
+        return None
+        
+
+    def add_deck_key( self, client, key ):
+        if client not in self.players:
+            return "Player is not in this game"
+
+        if self.state != "SHUFFLING":
+            return "Action not valid in current game state"
+
+        player = self.get_player( client )
+        if player.deck_key:
+            return "Player already provided key"
+        
+        player.deck_key = key
+        self.deck_keys += 1
+        return None
+
+
+    def add_commit( self, client, commit ):
+        if client not in self.players:
+            return "Player is not in this game"
+
+        if self.state != "SHUFFLING":
+            return "Action not valid in current game state"
+
+        player = self.get_player( client )
+        if player.deck_key:
+            return "Player already provided key"
+
+        player.commit = commit
+        self.commits += 1
 
 #########################################################################
 ## Main server functions
@@ -284,26 +419,22 @@ def redirect_messages (msg, client_socket):
             send_game_list (client)
     
         elif intent == "join_game":
-            success, is_full = join_game_handler (msg, client)
-            if success and is_full:
-                game = games[msg.get("game_id")]
-                game.change_state("FULL")
+            join_game_handler (msg, client)
                     
         elif intent == "create_game":
             create_game_handler (msg, client)
         
         elif intent == "confirm_players":
-            success = player_confirmation_handler (msg, client)
-            if success:
-                broadcast_player_confirmation (msg, client)
-            #TODO: if 4 players confirmed: game.state = "SHUFFLING"
-            pass
-            
-        elif intent == "deck_encrypting":
-            pass
+            player_confirmation_handler (msg, client)
 
-        elif intent == "":
-            pass
+        elif intent == "relay_deck":
+            deck_relay_handler( msg, client )
+
+        elif intent == "share_deck_key":
+            deck_key_sharing_handler( msg, client )
+
+        elif intent == "bit_commit":
+            bit_commit_handler( msg, client )
 
         elif intent == "play":
             # making a play
@@ -336,7 +467,8 @@ while True:
                 msg = json.loads(data)
                 redirect_messages (msg, s)
             else:
-                s.close()
+                print("Client disconnected")
+                s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
                 read_list.remove (s)
         
                 

@@ -139,7 +139,7 @@ def send_pl_confirmation (game_id):
 
 
 # Waits for a reply from server (blocking)
-def wait_for_reply (expected=None):
+def wait_for_reply (expected_reply=None):
     received, addr = sock.recvfrom (BUFFER_SIZE)
     print ("\nReceived:", received)#DEBUG
     
@@ -148,7 +148,7 @@ def wait_for_reply (expected=None):
         sock.close()
         exit()
         
-    reply = received.decode()
+    reply = received.decode().rstrip()
     reply = json.loads(reply)
     
     if "error" in reply.keys():
@@ -156,6 +156,8 @@ def wait_for_reply (expected=None):
         sock.close()
         exit()
 
+    if expected_reply:
+        return reply.get(expected_reply)
     return reply
     
 
@@ -174,13 +176,15 @@ def wait_for_reply_or_input (expected_reply=None):
                     else:
                         print ("Invalid command!")
             else:
-                reply = s.recv (BUFFER_SIZE).decode()
+                reply = s.recv (BUFFER_SIZE).decode().rstrip()
+                print( "Received:", reply )
                 reply = msg = json.loads(reply)
-                print("Received:",reply)
                 if "error" in reply.keys():
                     print ("ERROR:", reply.get("error"))
                     s.close()
                     exit()
+                if expected_reply:
+                    return msg.get(expected_reply), None
                 return msg, None
 
 
@@ -202,24 +206,6 @@ def format_game_list (game_list):
     return new_list
 
 
-# Converts the received (JSON) player to Player object
-def json_to_player(msg):
-    return Player(
-        msg.get("num"),
-        msg.get("name"),
-        msg.get("pub_key"))
-
-
-# Converts the received (JSON) player list to a list of Player objects
-def json_to_player_lst(p_list):
-    return [
-        Player(
-            p.get("num"),
-            p.get("name"),
-            p.get("pub_key")
-        ) for p in p_list]
-
-
 # Get next player
 def next_player(game):
     idx = game.player_num
@@ -239,7 +225,7 @@ def random_player(game):
     options = [0, 1, 2, 3]
     options.remove(game.num)
     rand_num = random.choice(options)
-    return game.all_players[rand_num]
+    return game.players[rand_num]
 
 
 
@@ -279,7 +265,12 @@ def decrypt_cards(deck):
 
 
 def shuffle(deck):
-    #TODO
+    size = len(deck)
+    for passes in range ( 0, 9):
+        for i in range( 0, size):
+            pos = 0 #random
+            card = deck.pop( pos )
+            deck.insert( pos, card )
     return deck
 
 def relay_deck(game, deck, player=None):
@@ -348,8 +339,13 @@ class Game:
         self.deck = []
         self.deck_key = "None" #TODO
         self.state = "OPEN"
-        self.all_players = json_to_player_lst(info.get("players")) # separar entre other players e self?
-        self.pl_count = len(self.all_players)
+        self.players = [
+            Player(
+                p.get("num"),
+                p.get("name"),
+                p.get("pub_key")) 
+            for p in info.get("players")]
+        self.pl_count = len(self.players)
         self.max_players = 4
         
 
@@ -357,51 +353,56 @@ class Game:
         self.wait_in_lobby()
         self.deck_encrypthing()
         self.card_selection()
+        self.commit_deck()
+        self.wait_for_commits()
         self.share_deck_key()
         self.get_deck_keys()
-        self.decrypt_deck() #TODO
-        self.commit_deck() # TODO: antes ou depois de decrypt?
+        self.decrypt_deck()
         self.start_game()
 
 
-    def update_state (self, state):
-        self.state = state
-        if state == "OPEN":
+    def update_state (self, new_state):
+        self.state = new_state
+        global game_cmds
+        if new_state == "OPEN":
             game_cmds = ["exit"]
-        elif state == "FULL":
+        elif new_state == "FULL":
             game_cmds = ["exit", "confirm"]
         else:
             game_cmds = []
 
 
     def new_player (self, player):
-        new_player = json_to_player(player)
-        self.all_players.append(new_player)
-        self.pl_count = len(self.all_players)
+        new_player = Player(
+            player.get("num"),
+            player.get("name"),
+            player.get("pub_key"))
+        self.players.append(new_player)
+        self.pl_count = len(self.players)
     
 
     def player_left (self, p_num):
-        self.all_players.pop(p_num)
-        self.pl_count = len(self.all_players)
+        self.players.pop(p_num)
+        self.pl_count = len(self.players)
         for i in range(p_num, self.pl_count):
             self.players[i].player_num = i
             
 
     def player_confirmed (self, player_num):
-        self.players[player_num].confirmed = True
+        self.players[ player_num ].confirmed = True
 
 
     def wait_in_lobby (self):
         # Wait for players to join the lobby
         AUTO_ONCE = True
-        while self.state in ["OPEN","FULL"]:
+        while self.state in ["OPEN", "FULL"]:
             # Automatically send confirmation once
             if AUTO and AUTO_ONCE and self.state == "FULL":
                 send_pl_confirmation(self.game_id)
                 AUTO_ONCE = False
 
             print_lobby_state(self)
-            msg, cmd = wait_for_reply_or_input()
+            msg, cmd = wait_for_reply_or_input("game_update")
         
             # Received a message from server
             if msg:
@@ -437,25 +438,39 @@ class Game:
 
 
     def card_selection(self):
-        while len(self.deck) < 13:
-            deck_passing = wait_for_reply()
-            deck = deck_passing.get("deck")
-            if random() < PICK_CHANCE:
-                # Pick one
-                deck_size = len(deck)
-                pick = random.randrange(0, deck_size)
-                card = deck.pop(pick)
-                self.deck.append(card)
+        #TODO end the cycle
+        deck_passing = True
+        while deck_passing:
+            deck_passing = wait_for_reply("deck")
+            if not deck_passing:
+                relay_deck( self, deck_passing, next_player() )
+                break
+            
+            # Pick one
+            if len(self.deck) < 12 and random() < PICK_CHANCE:    
+                deck_size = len( deck_passing )
+                pick = random.randrange( 0, deck_size )
+                card = deck_passing.pop( pick )
+                self.deck.append( card )
+            # Swap a card
             elif len(self.deck) > 0 and random() < SWAP_CHANCE:
-                # Swap a card
                 pass
 
             # Shuffle
-            shuffle(deck)
+            shuffle( deck )
             # Send to random player
-            player = random_player(self)
-            relay_deck(self, deck, player)
+            player = random_player( self )
+            relay_deck( self, deck_passing, player )
+        
 
+    def commit_deck(self):
+        # Hash deck
+        # Send
+        pass
+
+    def wait_for_commits(self):
+        # wait for other commits before sharing deck key
+        pass
 
     def share_deck_key(self):
         msg = {
@@ -469,24 +484,20 @@ class Game:
         reply = wait_for_reply()
         keys = reply.get("keys")
         for i in range(0, self.pl_count):
-            self.all_players[i].pub_key = keys.get(i)
+            self.players[i].pub_key = keys.get(i)
 
 
     def decrypt_deck(self):
         for i in range(0, self.pl_count):
-            key = self.all_players[i].pub_key
-            decrypt_cards(self.deck, key)
-
-
-    def commit_deck(self):
-        # Hash deck
-        # Send
-        pass
+            idx = self.pl_count - 1 - i
+            key = self.players[ idx ].pub_key
+            decrypt_cards( self.deck, key )
 
 
     def start_game(self):
         print("The game is starting!")
-        
+        while True:
+            time.sleep(1)
 
 #########################################################################
 ## Client functions
@@ -508,7 +519,8 @@ class Client:
     
     def list_games (self):
         request_game_list()
-        game_list = wait_for_reply ()
+        reply = wait_for_reply ()
+        game_list = reply.get("game_list")
         fmtd_game_list = format_game_list (game_list)
         print ("Games:")
         for game in fmtd_game_list:
@@ -524,14 +536,14 @@ class Client:
                 except:
                     print("Not a number!")
         request_to_join_game (game_id)
-        game_info = wait_for_reply ()
+        game_info = wait_for_reply ("game_info")
         game = Game(game_info)
         game.wait_in_lobby()
 
 
     def create_game (self):
         request_to_create_game()
-        game_info = wait_for_reply ()
+        game_info = wait_for_reply ("game_info")
         game = Game(game_info)
         game.wait_in_lobby()
 
