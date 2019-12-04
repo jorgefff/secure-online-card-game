@@ -24,6 +24,7 @@ BUFFER_SIZE = 1024
 
 # TCP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sock.bind(SV_ADDR)
 
 
@@ -107,8 +108,8 @@ def broadcast_deck_keys( players):
 
 def generate_deck():
     deck = []
-    suits = ["Spades", "Clubs", "Hearts", "Diamonds"]
-    specials = ["A", "K", "Q", "J"]
+    suits = ["Sp", "Cl", "He", "Di"] # Spades Clubs Hearts Diamonds
+    specials = ["A", "K", "Q", "J"]  # Ace King Queen Jack
     for suit in suits:
         for sp in specials:
             deck.append( suit + "-" + sp )
@@ -175,11 +176,11 @@ def player_confirmation_handler (msg, client):
     if game.all_confirmed():
         broadcast_state_change(game.players, "SHUFFLE")
         deck = generate_deck()
-        msg = {"deck": deck}
-        game.players[0].send(msg)
+        msg = {"data": { "deck": deck }}
+        game.players[0].client.send(msg)
     
 
-def deck_relay_handler (msg, client):
+def relay_handler (msg, client):
     game_id = msg.get("game_id")
     if game_id not in games.keys():
         reply = {"error": "Game not found"}
@@ -188,9 +189,10 @@ def deck_relay_handler (msg, client):
     
     #TODO: verify players
     #TODO: verify relays
-    game = games[game_id]
+    game = games[ game_id ]
     relay_to = msg.get("relay_to")
-    game.players[relay_to].send(msg)
+    data = {"data": msg.get("data")}
+    game.players[ relay_to ].client.send( data )
         
 
 def deck_key_sharing_handler(msg, client):
@@ -246,7 +248,7 @@ class Client:
         try:
             self.socket.send(msg)
         except socket.error:
-            print("Client has disconnected!")
+            print("This client is not connected!")
 
 
     def __eq__(self, other):
@@ -427,8 +429,8 @@ def redirect_messages (msg, client_socket):
         elif intent == "confirm_players":
             player_confirmation_handler (msg, client)
 
-        elif intent == "relay_deck":
-            deck_relay_handler( msg, client )
+        elif intent == "relay":
+            relay_handler( msg, client )
 
         elif intent == "share_deck_key":
             deck_key_sharing_handler( msg, client )
@@ -467,8 +469,8 @@ while True:
                 msg = json.loads(data)
                 redirect_messages (msg, s)
             else:
-                print("Client disconnected")
+                print("Client has disconnected")
                 s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
                 read_list.remove (s)
-        
+                
                 
