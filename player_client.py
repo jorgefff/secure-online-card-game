@@ -162,7 +162,7 @@ def wait_for_reply (expected_reply=None):
     reply = json.loads(reply)
     
     if "error" in reply.keys():
-        print ("ERROR:", reply.get("error"))
+        print ("ERROR:", reply[ "error" ])
         sock.close()
         exit()
 
@@ -217,7 +217,7 @@ def format_game_list (game_list):
 
 
 # Get next player
-def next_player(game):
+def next_player( game ):
     idx = game.player_num + 1
     if idx == game.max_players:
         idx = 0
@@ -262,16 +262,22 @@ def print_lobby_state (game):
         print("Commands: confirm, exit")
 
 
-def encrypt_cards(deck, key=None):
+def encrypt_cards( deck, key=None ):
     #TODO
     # If None, use own key
     # Else use key
     return deck
 
+def bit_commit( deck ):
+    #TODO
+    return "BIT-COMMIT"
 
-def decrypt_cards(deck):
+
+def decrypt_cards( deck ):
     #TODO
     return deck
+
+
 
 
 def relay_data (game, data, send_to="next"):
@@ -336,7 +342,8 @@ class Game:
         self.title = info.get("title")
         self.player_num = info.get("player_num")
         self.deck = []
-        self.deck_key = "None" #TODO
+        self.passing_data = {"commits": {}, "deck_keys": {}}
+        self.deck_key = "deck_key-TODO"
         self.state = "OPEN"
         self.players = [
             Player(
@@ -353,9 +360,8 @@ class Game:
         self.deck_encrypthing()
         self.card_selection()
         self.commit_deck()
-        self.wait_for_commits()
         self.share_deck_key()
-        self.get_deck_keys()
+        self.verify_equal_info()
         self.decrypt_deck()
         self.start_game()
 
@@ -391,7 +397,7 @@ class Game:
         self.players[ player_num ].confirmed = True
 
 
-    def wait_in_lobby (self):
+    def wait_in_lobby( self ):
         # Wait for players to join the lobby
         AUTO_ONCE = True
         while self.state in ["OPEN", "FULL"]:
@@ -429,7 +435,7 @@ class Game:
                     exit()
         
 
-    def deck_encrypthing (self):
+    def deck_encrypthing( self ):
         reply = wait_for_reply( "data" )
         deck = reply.get( "deck" )
         encrypt_cards( deck )
@@ -438,20 +444,24 @@ class Game:
         relay_data( self, data )
 
 
-    def card_selection(self):
+    def card_selection( self ):
         while True:
+            
             reply = wait_for_reply( "data" )
+
             # Someone started bit commit process
-            if "bit_commit" in reply.keys():
+            if "commits" in reply.keys():
+                commits = reply.get( "commits" )
+                self.passing_data[ "commits" ].update( commits )
                 break
             
             deck_passing = reply.get( "deck" ) 
             passing_size = len( deck_passing )
-            deck_size = len ( self.deck )
+            deck_size = len( self.deck )
 
             # The passing deck is empty - decide if start commit process
             if passing_size == 0 and decide_to_commit():
-                input("COMMITNG!")
+                break
             
             # Pick one
             elif deck_size < 13 and decide_to_pick():    
@@ -463,45 +473,61 @@ class Game:
                 max_swaps = min( deck_size, passing_size )
 
             # Shuffle
-            rand.shuffle( deck_passing )
-            data = {"deck": deck_passing }
+            if passing_size > 0:
+                rand.shuffle( deck_passing )
+            
             # Send to random player
-            relay_data( self, data )
-        
+            data = {"deck": deck_passing }
+            relay_data( self, data, "random" )
 
-    def commit_deck(self):
-        # Hash deck
-        input("Commit phase!")
-        # Send
+
+    def commit_deck( self ):
+        commit = bit_commit( self.deck )
+        my_commit = { str( self.player_num ): commit }
+        self.passing_data[ "commits" ].update( my_commit )
+        relay_data( self, self.passing_data )
+
+        while len( self.passing_data[ "commits" ] ) < 4:
+            data = wait_for_reply( "data" )
+            commits = data[ "commits" ]
+            self.passing_data[ "commits" ].update( commits )
+            relay_data( self, self.passing_data )
+
+        #TODO: Verify commits
+
+
+    def share_deck_key( self ):
+        my_key = { str( self.player_num ) : self.deck_key }
+        self.passing_data[ "deck_keys" ].update( my_key )
+        relay_data( self, self.passing_data )
+
+        while len( self.passing_data[ "deck_keys" ] ) < 4:
+            data = wait_for_reply( "data" )
+            deck_keys = data[ "deck_keys" ]
+            self.passing_data[ "deck_keys" ].update( deck_keys )
+            relay_data( self, self.passing_data )
+
+
+    def verify_equal_info( self ):
+        # Send passing_data to server to check if everyone has equal info
         pass
 
-    def wait_for_commits(self):
-        # wait for other commits before sharing deck key
+
+    def decrypt_deck( self ):
+        #TODO
         pass
-
-    def share_deck_key(self):
-        msg = {
-            "intent": "share_deck_key",
-            "deck_key": self.deck_key}
-        msg = json.dumps(msg).encode()
-        sock.send(msg)
-
-
-    def get_deck_keys(self):
-        reply = wait_for_reply()
-        keys = reply.get("keys")
-        for i in range(0, self.pl_count):
-            self.players[i].pub_key = keys.get(i)
-
-
-    def decrypt_deck(self):
-        for i in range(0, self.pl_count):
-            idx = self.pl_count - 1 - i
-            key = self.players[ idx ].pub_key
-            decrypt_cards( self.deck, key )
+        # for i in range(0, self.pl_count):
+        #     idx = self.pl_count - 1 - i
+        #     key = self.players[ idx ].pub_key
+        #     decrypt_cards( self.deck, key )
 
 
     def start_game(self):
+        print("\n\n\n\n\n")
+        for d in self.passing_data:
+            print( self.passing_data[d] )
+        exit()
+        
         print("The game is starting!")
         while True:
             time.sleep(1)
@@ -510,10 +536,10 @@ class Game:
 ## Client functions
 
 class Client:
-    def __init__ (self):
+    def __init__( self ):
         pass
 
-    def join_server (self):
+    def join_server( self ):
         try:
             sock.connect (SV_ADDR)
         except:
@@ -524,7 +550,7 @@ class Client:
         register_to_server()
     
     
-    def list_games (self):
+    def list_games( self ):
         request_game_list()
         reply = wait_for_reply ()
         game_list = reply.get("game_list")
@@ -548,19 +574,19 @@ class Client:
         game.start()
 
 
-    def create_game (self):
+    def create_game( self ):
         request_to_create_game()
         game_info = wait_for_reply ("game_info")
         game = Game(game_info)
         game.start()
 
 
-    def close (self):
+    def close( self ):
         sock.close()
         exit()
 
     
-    def decision_loop (self):
+    def decision_loop( self ):
         opts = [self.close, self.join_server, self.list_games, self.join_game, self.create_game]
         while (True):
             print_client_options()
