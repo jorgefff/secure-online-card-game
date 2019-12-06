@@ -103,6 +103,7 @@ def decide_to_swap():
 def decide_to_commit():
     return rand.random() < COMMIT_CHANCE
 
+
 # Requests the list of open games
 def request_game_list():
     request = {"intent" : "get_game_list"}
@@ -336,21 +337,16 @@ class Player:
 #########################################################################
 ## Game class
 
-class Game:
-    def __init__ (self, info):
-        self.game_id = info.get("game_id")
-        self.title = info.get("title")
-        self.player_num = info.get("player_num")
+class Table:
+    def __init__ (self, game_id, title, player_num, players):
+        self.game_id = game_id
+        self.title = title
+        self.player_num = player_num
         self.deck = []
         self.passing_data = {"commits": {}, "deck_keys": {}}
         self.deck_key = "deck_key-TODO"
         self.state = "OPEN"
-        self.players = [
-            Player(
-                p.get("num"),
-                p.get("name"),
-                p.get("pub_key")) 
-            for p in info.get("players")]
+        self.players = players
         self.pl_count = len(self.players)
         self.max_players = 4
         
@@ -560,7 +556,7 @@ class Client:
             print ("   "+game)
 
 
-    def join_game (self,game_id=None):
+    def join_table (self,game_id=None):
         if game_id == None:
             while True:
                 try:
@@ -568,17 +564,38 @@ class Client:
                     break
                 except:
                     print("Not a number!")
+
         request_to_join_game (game_id)
         game_info = wait_for_reply ("game_info")
-        game = Game(game_info)
-        game.start()
+
+        table = Table(
+            game_info.get("game_id"),
+            game_info.get("title"),
+            game_info.get("player_num"),
+            [Player(
+                p.get("num"),
+                p.get("name"),
+                p.get("pub_key")) 
+            for p in game_info.get("players")])
+
+        table.start()
 
 
-    def create_game( self ):
+    def create_table( self ):
         request_to_create_game()
         game_info = wait_for_reply ("game_info")
-        game = Game(game_info)
-        game.start()
+        
+        table = Table(
+            game_info.get("game_id"),
+            game_info.get("title"),
+            game_info.get("player_num"),
+            [Player(
+                p.get("num"),
+                p.get("name"),
+                p.get("pub_key")) 
+            for p in game_info.get("players")])
+
+        table.start()
 
 
     def close( self ):
@@ -587,7 +604,7 @@ class Client:
 
     
     def decision_loop( self ):
-        opts = [self.close, self.join_server, self.list_games, self.join_game, self.create_game]
+        opts = [self.close, self.join_server, self.list_games, self.join_table, self.create_table]
         while (True):
             print_client_options()
             opt = input("> ")
@@ -615,13 +632,13 @@ def automatic_main():
     
     if PORT == AUTO_PORTS[0]:
         print("\nCreating game")
-        c.create_game()
+        c.create_table()
     else:
         time.sleep(1)
         c.list_games()
         print("Joining game")
         time.sleep(3)
-        c.join_game(0)
+        c.join_table(0)
 
 
 if __name__ == "__main__":
