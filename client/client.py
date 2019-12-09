@@ -62,7 +62,6 @@ class Client:
         request = json.dumps(request).encode()
         self.sock.send(request)
         return self.wait_for_reply( "table_info" )
-        
 
 
     def create_table( self ):
@@ -133,7 +132,7 @@ class Client:
 
     # Confirm you want to play with these players
     def send_pl_confirmation( self, table_id):
-        #TODO: 
+        #TODO: falta a identidade dos oponentes
         # "The croupier will only start the table after getting a signed statement
         # from all players including the identity of the opponents"
         msg = {

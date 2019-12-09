@@ -14,6 +14,7 @@ PICK_CHANCE = 0.05
 SWAP_CHANCE = 0.5
 COMMIT_CHANCE = 0.5
 
+
 def decide_to_pick():
     return rand.random() < PICK_CHANCE
 
@@ -31,11 +32,6 @@ def next_player( table ):
         idx = 0
     player = table.players[idx]
     return player
-
-
-# Get previous player
-def prev_player(table):
-    pass
 
 
 # Returns a random player
@@ -84,48 +80,6 @@ def bit_commit( deck ):
 def decrypt_cards( deck ):
     #TODO
     return deck
-
-
-#########################################################################
-## Card class
-
-class Card:
-    def __init__(self):
-        pass        
-
-
-#########################################################################
-## Deck class
-
-class Deck:
-    def __init__(self):
-        pass
-
-
-#########################################################################
-## Player class
-
-class Player:
-    def __init__( self, num, name, pub_key):
-        self.num = num
-        self.name = name
-        self.pub_key = pub_key
-        self.deck_key = None
-        self.score = 0
-        self.rounds_won = 0
-        self.confirmed = False
-
-    def set_num( self, num):
-        self.num = num
-
-
-#########################################################################
-## Game class
-
-class Game:
-    def __init__( self):
-        self.players = []
-        self.player = None
 
 
 #########################################################################
