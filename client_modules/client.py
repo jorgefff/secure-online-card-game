@@ -58,10 +58,10 @@ class Client:
         return reply.get("table_list")
 
 
-    def join_table( self,table_id):
+    def join_table( self, table_id ):
         request = {
             "intent" : "join_table",
-            "table_id" : id
+            "table_id" : table_id
         }
         request = json.dumps(request).encode()
         self.sock.send(request)
@@ -70,17 +70,17 @@ class Client:
 
     def create_table( self ):
         request = {"intent" : "create_table"}
-        request = json.dumps(request).encode()
-        self.sock.send(request)
+        request = json.dumps( request ).encode()
+        self.sock.send( request )
         return self.wait_for_reply( "table_info" )
 
 
-    def relay_data( self, table_id, data, player_num, player_key):
+    def relay_data( self, table_id, data, p ):
         msg = {
             "intent": "relay",
             "table_id": table_id,
-            "relay_to": player_num,
-            "data": data
+            "relay_to": p.num,
+            "data": data #TODO: encrypt with p.pub_key
         }
         msg = json.dumps(msg).encode()
         self.sock.send(msg)
@@ -122,9 +122,10 @@ class Client:
                         else:
                             print( "Invalid command!")
                 else:
-                    reply = s.recv( BUFFER_SIZE).decode().rstrip()
+                    reply = s.recv( BUFFER_SIZE ).decode().rstrip()
                     print( "Received:", reply )
                     reply = json.loads(reply)
+
                     if "error" in reply.keys():
                         print( "ERROR:", reply.get("error"))
                         return False, False

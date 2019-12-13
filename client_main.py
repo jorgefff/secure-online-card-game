@@ -20,7 +20,7 @@ AUTO_PORTS = [52001,52002,52003,52004]
 if len(argv) < 2:
     print( "usages:")
     print("python3", argv[0], "<PORT_NUMBER>")
-    print("python3", argv[0], "AUTO <1-4>")
+    print("python3", argv[0], "AUTO <0-3>")
     exit()
 if argv[1].lower() == "auto":
     if not argv[2].isdigit:
@@ -160,7 +160,6 @@ def automatic_main():
         reply = c.create_table()
     else:
         time.sleep(1)
-        c.list_tables()
         print("Joining table")
         time.sleep(3)
         reply = c.join_table(0)

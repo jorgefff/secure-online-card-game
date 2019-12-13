@@ -86,8 +86,9 @@ def broadcast_new_player( players ):
     player = players[-1]
     new_player = {
         "name": player.client.name,
-        "pub_key": player.client.pub_key,
-        "num": player.num}
+        "pub_key": security.get_key_bytes( player.client.pub_key ),
+        "num": player.num 
+    }
 
     for p in players[:-1]:
         msg = {
@@ -375,9 +376,7 @@ class Table:
             p_list.append({
                 "name": p.client.name,
                 "num": p.num,
-                "pub_key": security.get_key_bytes(
-                    p.client.pub_key
-                )
+                "pub_key": security.get_key_bytes( p.client.pub_key )
             })
         return p_list
         

@@ -8,6 +8,7 @@ from sys import argv
 import sys
 import select
 import random as rand
+from client_modules.player import Player
 
 # Chances
 PICK_CHANCE = 0.05
@@ -181,22 +182,17 @@ class Table:
         
 
     def deck_encrypthing( self ):
-        reply = c.wait_for_reply( "data" )
+        reply = self.c.wait_for_reply( "data" )
         deck = reply.get( "deck" )
         encrypt_cards( deck )
         rand.shuffle( deck )
         data = { "deck": deck }
-        self.c.relay_data( 
-            table_id=self.table_id,
-            data=data,
-            player_num=self.player_num,
-            player_key=random_player(self).pub_key
-        )
+        self.c.relay_data( self.table_id, data, next_player(self) )
 
 
     def card_selection( self ):
         while True:
-            reply = c.wait_for_reply( "data" )
+            reply = self.c.wait_for_reply( "data" )
 
             # Someone started bit commit process
             if "commits" in reply.keys():
@@ -228,20 +224,20 @@ class Table:
             
             # Send to random player
             data = {"deck": deck_passing }
-            self.c.relay_data( self, data, "random" )
+            self.c.relay_data( self.table_id, data, random_player(self) )
 
 
     def commit_deck( self ):
         commit = bit_commit( self.deck )
         my_commit = { str( self.player_num ): commit }
         self.passing_data[ "commits" ].update( my_commit )
-        self.c.relay_data( self.passing_data )
+        self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
         while len( self.passing_data[ "commits" ] ) < 4:
-            data = c.wait_for_reply( "data" )
+            data = self.c.wait_for_reply( "data" )
             commits = data[ "commits" ]
             self.passing_data[ "commits" ].update( commits )
-            self.c.relay_data( self.passing_data )
+            self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
         #TODO: Verify commits
 
@@ -249,13 +245,13 @@ class Table:
     def share_deck_key( self ):
         my_key = { str( self.player_num ) : self.deck_key }
         self.passing_data[ "deck_keys" ].update( my_key )
-        self.c.relay_data( self.passing_data )
+        self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
         while len( self.passing_data[ "deck_keys" ] ) < 4:
-            data = c.wait_for_reply( "data" )
+            data = self.c.wait_for_reply( "data" )
             deck_keys = data[ "deck_keys" ]
             self.passing_data[ "deck_keys" ].update( deck_keys )
-            self.c.relay_data( self.passing_data )
+            self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
 
     def verify_equal_info( self ):
@@ -276,7 +272,6 @@ class Table:
         print("\n\n\n\n\n")
         for d in self.passing_data:
             print( self.passing_data[d] )
-        exit()
         
         print("The game is starting!")
         while True:
