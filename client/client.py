@@ -2,10 +2,14 @@ import socket
 import json
 import time
 import datetime
-import base64
+from base64 import b64encode, b64decode
 import os
 import select
 import sys
+
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+import security
+
 
 BUFFER_SIZE = 1024
 
@@ -21,8 +25,8 @@ class Client:
         )
         self.sock.bind((ip, port))
 
-        self.pub_key = "pubk"   #TODO: generate
-        self.priv_key = "privk" #TODO: generate
+        self.priv_key =  security.generate_priv_key()
+        self.pub_key = security.generate_pub_key( self.priv_key )
         self.sv_pub_key = None
         self.client_name = "nome blablabla"
 
@@ -35,12 +39,12 @@ class Client:
             return
 
         reply = self.wait_for_reply()
-        sv_pub_key = reply.get("pub_key")
+        self.sv_pub_key = security.load_key_from_bytes( reply.get("pub_key") )
         
         msg = {
             "intent": "register",
             "name": self.client_name,
-            "pub_key": self.pub_key
+            "pub_key":  security.get_key_bytes( self.pub_key )
         }
         msg = json.dumps(msg).encode()
         self.sock.send(msg)

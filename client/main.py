@@ -97,7 +97,9 @@ def main():
         if not (opt.isdigit() and int(opt) >= 0 and int(opt) < 5):
             continue
         
+        opt = int(opt)
         reply = None
+
         # Close
         if opt == 0:
             c.close()

@@ -4,7 +4,7 @@ import string
 import hashlib
 import binascii
 import unicodedata
-import base64
+from base64 import b64decode, b64encode
 
 from math import *
 from datetime import datetime
@@ -20,34 +20,37 @@ from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 
-# function to generate a 1024 bits RSA private key
-# https://cryptography.io/en/latest/hazmat/primitives/asymmetric/rsa/
+# Generate a RSA private key
 def generate_priv_key():
-    return rsa.generate_private_key( 65537, 1024, backend=default_backend() )
+    return rsa.generate_private_key( 
+        public_exponent=65537, 
+        key_size=1024, 
+        backend=default_backend()
+    )
 
 
-# function to generate a (same amount of bits) RSA public key
-# https://cryptography.io/en/latest/hazmat/primitives/asymmetric/rsa/
+# Generate RSA public key from a private key
 def generate_pub_key( privKey ):
     return privKey.public_key()
 
 
-# https://cryptography.io/en/latest/hazmat/primitives/asymmetric/rsa/?highlight=rsa
-def encrypt(pub_key, message):
-		ciphertext = pub_key.encrypt(
-			message,
-			padding.OAEP(
-				mgf=padding.MGF1(algorithm=hashes.SHA256()),
-				algorithm=hashes.SHA256(),
-				label=None
-			)
-		)
-		return ciphertext
+def encrypt( key, text ):
+    if type(text) is str:
+        text = text.encode()
+        text = b64encode( text )
+    ciphertext = key.encrypt(
+        text,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return ciphertext
 
 
-# https://cryptography.io/en/latest/hazmat/primitives/asymmetric/rsa/?highlight=rsa
 def decrypt( priv_key, ciphertext ):
-    plainText = priv_key.decrypt(
+    plaintext = priv_key.decrypt(
         ciphertext,
         padding.OAEP(
             mgf=padding.MGF1( algorithm=hashes.SHA256() ),
@@ -55,22 +58,67 @@ def decrypt( priv_key, ciphertext ):
             label=None
         )
     )
-    return plainText
+    plaintext = b64decode( plaintext )
+    plaintext.decode('utf-8')
+    return plaintext
 
 
-print( "Generate private key" )
-priv_k = generate_priv_key()
+# Gets the bytes from this public key
+def get_key_bytes( key ):
+    key_bytes = key.public_bytes(
+        encoding = serialization.Encoding.PEM,
+        format = serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    return key_bytes.decode('utf-8')
 
-print( "Generating public key" )
-pub_k = generate_pub_key( priv_k )
 
-plaintext = "blabla rawdawdawd 1023x"
-print( "\nPlaintext:\n", plaintext)
+# Loads a public key from the bytes of another public key
+def load_key_from_bytes( key_bytes ):
+    if type(key_bytes) is str:
+        key_bytes = key_bytes.encode()
+    return serialization.load_pem_public_key(
+        key_bytes,
+        backend=default_backend()
+    )
+    
 
-plaintext = base64.b64encode( plaintext.encode() )
-ciphered = encrypt( pub_k, plaintext )
-print( "\nCiphered text:\n", ciphered )
 
-deciphered = base64.b64decode( decrypt( priv_k, ciphered ) ).decode('utf-8')
-print( "\nDeciphered text:\n", deciphered )
+
+############### DEBUG
+
+# print( "Generate private key" )
+# priv_k = generate_priv_key()
+
+# print( "Generating public key" )
+# pub_k = generate_pub_key( priv_k )
+
+# # plaintext = "blabla rawdawdawd 1023x"
+# # print( "\nPlaintext:\n", plaintext)
+
+# # ciphered = encrypt( pub_k, plaintext )
+# # print( "\nCiphered text:\n", ciphered )
+
+# # deciphered = decrypt( priv_k, ciphered )
+# # print( "\nDeciphered text:\n", deciphered )
+
+# import json
+
+# msg = { "pubkey": get_key_bytes( pub_k ) }
+# msg = json.dumps( msg )
+
+# rcv = json.loads(msg)
+# key = load_key_from_bytes( rcv["pubkey"] )
+
+
+# t = "abc123123"
+
+# cipher = encrypt(key, t)
+
+# decipher = decrypt(priv_k, cipher)
+
+# print("Text:\n",t)
+
+# print("Ciphered:\n",cipher)
+
+# print("Deciphered:\n",decipher)
 

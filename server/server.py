@@ -8,6 +8,8 @@ import os
 from sys import argv
 import sys
 
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
 # Global vars
 sv_pub_key = "placeholdersvkey"
 table_id_counter = 0
@@ -47,11 +49,20 @@ def send_table_list( client_socket ):
     msg = {"table_list": table_list}
     client_socket.send(msg)
 
+def pre_register_client( msg, client_socket):
+    priv_key = 
+    new_client = Client(
+        socket=client_socket,
+        name=None,
+        sv_priv_key=security.generate_priv_key()
+        sv_pub_key=
+        pub_key=None
+    )
 
 def register_client( msg, client_socket ):
     name = msg.get("name")
     pub_key = msg.get("pub_key")
-    new_client = Client (client_socket, name, pub_key)
+    new_client = Client( client_socket, name, pub_key )
     clients[client_socket] = new_client
 
 
@@ -240,7 +251,7 @@ class Client:
         self.socket = socket
         self.name = name
         self.pub_key = pub_key
-        self.sv_pub_key = sv_pub_key # if theres a unique sv_pub_key per client
+        self.sv_pub_key = sv_pub_key
 
     def send (self, msg):
         msg = json.dumps(msg).encode().ljust(BUFFER_SIZE, b' ')
