@@ -1,1 +1,2 @@
 rm -r __pycache__
+rm -r client_modules/__pycache__

@@ -8,9 +8,10 @@ from sys import argv
 import sys
 import select
 import random as rand
-from table import Table
-from player import Player
-from client import Client
+from client_modules.client import Client
+from client_modules.table import Table
+from client_modules.player import Player
+import security
 
 # Select port
 AUTO = False

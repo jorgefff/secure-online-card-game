@@ -73,7 +73,7 @@ def get_key_bytes( key ):
 
 
 # Loads a public key from the bytes of another public key
-def load_key_from_bytes( key_bytes ):
+def load_key( key_bytes ):
     if type(key_bytes) is str:
         key_bytes = key_bytes.encode()
     return serialization.load_pem_public_key(

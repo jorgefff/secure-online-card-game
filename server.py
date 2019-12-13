@@ -7,13 +7,12 @@ import base64
 import os
 from sys import argv
 import sys
-
-sys.path.insert(1, os.path.join(sys.path[0], '..'))
+import security
 
 # Global vars
-sv_pub_key = "placeholdersvkey"
 table_id_counter = 0
 tables = {}
+pre_registers = {}
 clients = {}
 
 # Address
@@ -30,10 +29,36 @@ sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sock.bind(SV_ADDR)
 
 
+def pre_register_client( client_socket):
+    priv_key = security.generate_priv_key()
+    pub_key = security.generate_pub_key( priv_key )
+    new_client = Client(
+        socket=client_socket,
+        name=None,
+        sv_priv_key=priv_key,
+        sv_pub_key=pub_key
+    )
+    pre_registers[client_socket] = new_client
+
+
 def send_pub_key( client_socket ):
-    msg = {"pub_key" : sv_pub_key}
+    c = pre_registers[ client_socket ]
+    key = security.get_key_bytes( c.sv_pub_key )
+    msg = {"pub_key" : key }
     msg = json.dumps(msg).encode().ljust(BUFFER_SIZE, b' ')
-    client_socket.send(msg)
+    client_socket.send( msg )
+
+
+def register_client( msg, client_socket ):
+    c = pre_registers.get( client_socket )
+    
+    key = msg.get("pub_key")
+
+    c.name = msg.get("name")
+    c.pub_key = security.load_key( key )
+    
+    clients[client_socket] = c
+    del pre_registers[client_socket]
 
 
 def send_table_list( client_socket ):
@@ -48,22 +73,6 @@ def send_table_list( client_socket ):
 
     msg = {"table_list": table_list}
     client_socket.send(msg)
-
-def pre_register_client( msg, client_socket):
-    priv_key = 
-    new_client = Client(
-        socket=client_socket,
-        name=None,
-        sv_priv_key=security.generate_priv_key()
-        sv_pub_key=
-        pub_key=None
-    )
-
-def register_client( msg, client_socket ):
-    name = msg.get("name")
-    pub_key = msg.get("pub_key")
-    new_client = Client( client_socket, name, pub_key )
-    clients[client_socket] = new_client
 
 
 def get_new_table_id():
@@ -247,10 +256,11 @@ def bit_commit_handler( msg, client ):
 #########################################################################
 ## Client functions
 class Client:
-    def __init__ (self, socket, name, pub_key):
+    def __init__ (self, socket, name, sv_priv_key, sv_pub_key):
         self.socket = socket
         self.name = name
-        self.pub_key = pub_key
+        self.pub_key = None
+        self.sv_priv_key = sv_priv_key
         self.sv_pub_key = sv_pub_key
 
     def send (self, msg):
@@ -470,8 +480,9 @@ while True:
         # New TCP connection
         if s is sock:
             client_socket, address = sock.accept()
-            read_list.append (client_socket)
-            send_pub_key (client_socket)
+            read_list.append( client_socket )
+            pre_register_client( client_socket )
+            send_pub_key( client_socket )
             print ("Connection from", address)
         # Client sent a message
         else:

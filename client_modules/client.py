@@ -38,8 +38,8 @@ class Client:
             print( "Connection failed")
             return
 
-        reply = self.wait_for_reply()
-        self.sv_pub_key = security.load_key_from_bytes( reply.get("pub_key") )
+        key = self.wait_for_reply("pub_key")
+        self.sv_pub_key = security.load_key( key )
         
         msg = {
             "intent": "register",
