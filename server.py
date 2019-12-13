@@ -21,7 +21,7 @@ SERVER_PORT = 50000
 SV_ADDR = (IP, SERVER_PORT)
 
 # Socket configs
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 8 * 1024
 
 # TCP Socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -375,7 +375,10 @@ class Table:
             p_list.append({
                 "name": p.client.name,
                 "num": p.num,
-                "pub_key": p.client.pub_key})
+                "pub_key": security.get_key_bytes(
+                    p.client.pub_key
+                )
+            })
         return p_list
         
 

@@ -11,7 +11,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 
 
-BUFFER_SIZE = 1024
+BUFFER_SIZE = 8 * 1024
 
 class Client:
     def __init__( self, ip, port ):
@@ -95,7 +95,7 @@ class Client:
             exit()
             
         reply = received.decode().rstrip()
-        print( "\nReceived:", received)
+        print( "\nReceived:", reply)
         reply = json.loads(reply)
         
         if "error" in reply.keys():

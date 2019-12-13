@@ -19,8 +19,8 @@ AUTO_PORTS = [52001,52002,52003,52004]
 
 if len(argv) < 2:
     print( "usages:")
-    print("python3 player_client.py <PORT_NUMBER>")
-    print("python3 player_client.py AUTO <1-4>")
+    print("python3", argv[0], "<PORT_NUMBER>")
+    print("python3", argv[0], "AUTO <1-4>")
     exit()
 if argv[1].lower() == "auto":
     if not argv[2].isdigit:
@@ -130,7 +130,7 @@ def main():
 
         # Create new table
         elif opt == 4:
-            reply = c.create_table
+            reply = c.create_table()
 
         if reply:
             table = Table(
