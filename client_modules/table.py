@@ -67,16 +67,6 @@ def print_lobby_state( table):
         print("Commands: confirm, exit")
 
 
-def bit_commit( deck ):
-    #TODO
-    return "BIT-COMMIT"
-
-
-def decrypt_cards( deck ):
-    #TODO
-    return deck
-
-
 #########################################################################
 ## Table class
 class Table:
@@ -219,14 +209,28 @@ class Table:
             elif deck_size < 13 and decide_to_pick():    
                 pick = rand.randrange( 0, passing_size )
                 card = deck_passing.pop( pick )
+                passing_size -= 1
                 self.deck.append( card )
+                deck_size += 1
             
             # Swap cards
-            elif deck_size > 0 and decide_to_swap():
+            if deck_size > 0 and passing_size > 0 and decide_to_swap():
                 max_swaps = min( deck_size, passing_size )
+                swaps = rand.randrange( 1, max_swaps+1 )
+                while swaps > 0:
+                    swaps -= 1
+                    # Pick 2 random positions
+                    passing_pick = rand.randrange( 0, passing_size )
+                    my_pick = rand.randrange( 0, deck_size )
+                    # Take the cards
+                    passing_card = deck_passing[passing_pick]
+                    my_card = self.deck[my_pick]
+                    # Swap the cards
+                    deck_passing[passing_pick] = my_card
+                    self.deck[my_pick] = passing_card
 
             # Shuffle
-            if passing_size > 0:
+            if passing_size > 1:
                 rand.shuffle( deck_passing )
             
             # Send to random player
@@ -235,7 +239,7 @@ class Table:
 
 
     def commit_deck( self ):
-        commit = bit_commit( self.deck )
+        commit = "BIT-COMMIT" #TODO
         commit = b64encode( commit.encode() ).decode("utf-8")
         my_commit = { str( self.player_num ): commit }
         self.passing_data[ "commits" ].update( my_commit )
@@ -246,8 +250,6 @@ class Table:
             commits = data[ "commits" ]
             self.passing_data[ "commits" ].update( commits )
             self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
-
-        #TODO: Verify commits
 
 
     def share_deck_key( self ):
