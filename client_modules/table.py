@@ -2,7 +2,7 @@ import socket
 import json
 import time
 import datetime
-import base64
+from base64 import b64decode, b64encode
 import os
 from sys import argv
 import sys
@@ -99,12 +99,13 @@ class Table:
 
     def start(self):
         self.wait_in_lobby()
-        
+        # Cycle:
         self.deck_encrypting()
         self.card_selection()
         self.commit_deck()
         self.share_deck_key()
         self.verify_equal_info()
+        self.update_player_info()
         self.decrypt_deck()
         self.start_game()
 
@@ -235,6 +236,7 @@ class Table:
 
     def commit_deck( self ):
         commit = bit_commit( self.deck )
+        commit = b64encode( commit.encode() ).decode("utf-8")
         my_commit = { str( self.player_num ): commit }
         self.passing_data[ "commits" ].update( my_commit )
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
@@ -251,9 +253,9 @@ class Table:
     def share_deck_key( self ):
         my_key = { 
             str(self.player_num): {
-                "pwd": self.deck_pwd.decode(),
-                "iv": self.deck_iv.decode(),
-            } 
+                "pwd": b64encode( self.deck_pwd ).decode("utf-8"),
+                "iv": b64encode( self.deck_iv ).decode("utf-8"),
+            }
         }
         self.passing_data[ "deck_keys" ].update( my_key )
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
@@ -265,24 +267,42 @@ class Table:
             self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
 
+    # Send passing_data to server to check if everyone has equal info
     def verify_equal_info( self ):
-        # Send passing_data to server to check if everyone has equal info
         pass
+
+
+    def update_player_info( self ):
+        for i in range(0, len(self.players)):
+            # Retrieve from passing data
+            commit = self.passing_data["commits"][str(i)]
+            pwd = self.passing_data["deck_keys"][str(i)]["pwd"]
+            iv = self.passing_data["deck_keys"][str(i)]["iv"]
+            # Format
+            commit = b64decode( commit.encode() )
+            pwd = b64decode( pwd.encode() )
+            iv = b64decode( iv.encode() )
+            # Update
+            self.players[i].bit_commit = commit
+            self.players[i].deck_pwd = pwd
+            self.players[i].deck_iv = iv
 
 
     def decrypt_deck( self ):
-        #TODO
-        pass
-        # for i in range(0, self.pl_count):
-        #     idx = self.pl_count - 1 - i
-        #     key = self.players[ idx ].pub_key
-        #     decrypt_cards( self.deck, key )
+        for p in reversed(self.players):
+            for i in range(0, len(self.deck)):
+                self.deck[i] = security.AES_decrypt(
+                    p.deck_pwd,
+                    p.deck_iv,
+                    self.deck[i]
+                ).decode("utf-8")
 
 
     def start_game(self):
         print("\n\n\n\n\n")
         for d in self.passing_data:
             print( self.passing_data[d] )
+        print("\n\nMy deck:", self.deck)
         
         print("The game is starting!")
         while True:

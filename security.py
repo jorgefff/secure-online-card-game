@@ -30,23 +30,24 @@ def RSA_generate_priv():
 
 
 # Generate RSA public key from a private key
-def RSA_generate_pub( privKey ):
-    return privKey.public_key()
+def RSA_generate_pub( priv_key ):
+    return priv_key.public_key()
 
 
-def RSA_encrypt( key, text ):
+# Encrypts with with a public key
+def RSA_encrypt( pub_key, text ):
     if type(text) is str:
         text = text.encode()
     
-    chunk_size = ( key.key_size // 8) - 2 * hashes.SHA256.digest_size - 2
-
+    chunk_size = ( pub_key.key_size // 8) - 2 * hashes.SHA256.digest_size - 2
     ciphertext = b''
     start = 0
+
     while start < len(text):
         end = start + chunk_size
         if end > len(text):
             end = len(text)
-        block = key.encrypt(
+        block = pub_key.encrypt(
             text[start:end],
             padding.OAEP(
                 mgf=padding.MGF1(algorithm=hashes.SHA256()),
@@ -56,15 +57,17 @@ def RSA_encrypt( key, text ):
         )
         start = end
         ciphertext += block
-        
+
     return b64encode( ciphertext )
 
 
+# Decrypts with private key
 def RSA_decrypt( priv_key, ciphertext ):
     chunk_size = 128
     ciphertext = b64decode( ciphertext )
     plaintext = b''
     start = 0
+    
     while start < len(ciphertext):
         end = start + chunk_size
         
@@ -154,12 +157,12 @@ def AES_decrypt(pwd, iv, ciphered):
 # en = encrypt(pub_k, text)
 # de = decrypt(priv_k, en)
 
-pwd = os.urandom(32)
-iv = os.urandom(16)
+# pwd = os.urandom(32)
+# iv = os.urandom(16)
 
-t = "aaaabbbbbbbc"
+# t = "aaaabbbbbbbc"
 
-ciph = AES_encrypt(pwd,iv,t)
-print("Ciph:",ciph)
-plain = AES_decrypt(pwd,iv, ciph)
-print("Decip:",plain)
+# ciph = AES_encrypt(pwd,iv,t)
+# print("Ciph:",ciph)
+# plain = AES_decrypt(pwd,iv, ciph)
+# print("Decip:",plain)

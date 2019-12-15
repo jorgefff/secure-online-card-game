@@ -36,7 +36,7 @@ class Client:
         try:
             self.sock.connect( ( ip, port ) )
         except:
-            print( "Connection failed")
+            print( "Connpriv_keyfailed")
             return
 
         key = self.wait_for_reply("pub_key")
@@ -91,6 +91,7 @@ class Client:
     def wait_for_reply( self, expected_reply=None, buffer=BUFFER_SIZE):
         if self.buffer:
             reply = self.buffer.pop(0)
+            print("Processing: ", reply)
         else:
             received, addr = self.sock.recvfrom( buffer )
             if not received:
@@ -104,8 +105,7 @@ class Client:
             if len(reply) > 1:
                 self.buffer += reply[1:-1]
             reply = reply[0]
-
-        print("Processing: ", reply)
+        
         reply = json.loads(reply)
         if "error" in reply.keys():
             print( "ERROR:", reply[ "error" ])
@@ -116,13 +116,14 @@ class Client:
         return reply
 
 
-    # Waits for either a server reply or user input( non blocking)
+    # Waits for either a server reply or user input ( non blocking )
     def wait_for_reply_or_input( self, expected_reply=None, ok_cmds=[]):
         read_list = [self.sock, sys.stdin]
         while True:
             reply = None
             if self.buffer:
                 reply = self.buffer.pop(0)
+                print("Processing:\n\n", reply)
             else:
                 readable, writable, errored = select.select( read_list, [], [])
                 for s in readable:
@@ -136,21 +137,17 @@ class Client:
                                 print( "Invalid command!")
                     else:
                         reply = s.recv( BUFFER_SIZE ).decode().rstrip()
-                        
                         print( "Received:", reply )
                         reply = reply.split("---EOM---")
-                    
                         if len(reply) > 1:
                             self.buffer += reply[1:-1]
                         reply = reply[0]
                         
             if reply:
-                print("Processing:\n\n", reply)
                 reply = json.loads(reply)
                 if "error" in reply.keys():
                     print( "ERROR:", reply.get("error"))
                     return False, False
-
                 if expected_reply:
                     return reply.get(expected_reply), None
                 return reply, None

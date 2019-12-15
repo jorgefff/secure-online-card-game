@@ -5,6 +5,8 @@ class Player:
         self.name = name
         self.pub_key = pub_key
         self.deck_key = None
+        self.deck_iv = None
+        self.bit_commit = None
         self.score = 0
         self.rounds_won = 0
         self.confirmed = False
