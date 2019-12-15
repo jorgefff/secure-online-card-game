@@ -6,12 +6,13 @@ from base64 import b64encode, b64decode
 import os
 import select
 import sys
+from base64 import b64decode,b64encode
 
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 
 
-BUFFER_SIZE = 8 * 1024
+BUFFER_SIZE = 32 * 1024
 
 class Client:
     def __init__( self, ip, port ):
@@ -25,11 +26,11 @@ class Client:
         )
         self.sock.bind((ip, port))
 
-        self.priv_key =  security.generate_priv_key()
-        self.pub_key = security.generate_pub_key( self.priv_key )
+        self.priv_key =  security.RSA_generate_priv()
+        self.pub_key = security.RSA_generate_pub( self.priv_key )
         self.sv_pub_key = None
         self.client_name = "nome blablabla"
-
+        self.buffer = []
 
     def join_server( self, ip, port ):
         try:
@@ -39,12 +40,12 @@ class Client:
             return
 
         key = self.wait_for_reply("pub_key")
-        self.sv_pub_key = security.load_key( key )
+        self.sv_pub_key = security.RSA_load_key( key )
         
         msg = {
             "intent": "register",
             "name": self.client_name,
-            "pub_key":  security.get_key_bytes( self.pub_key )
+            "pub_key":  security.RSA_key_bytes( self.pub_key )
         }
         msg = json.dumps(msg).encode()
         self.sock.send(msg)
@@ -80,59 +81,79 @@ class Client:
             "intent": "relay",
             "table_id": table_id,
             "relay_to": p.num,
-            "data": data #TODO: encrypt with p.pub_key
+            "data": data
         }
         msg = json.dumps(msg).encode()
         self.sock.send(msg)
 
 
-    # Waits for a reply from server( blocking)
-    def wait_for_reply( self, expected_reply=None):
-        received, addr = self.sock.recvfrom( BUFFER_SIZE)
-        
-        if not received:
-            print("Server side error!\nClosing client")
-            exit()
+    # Waits for a reply from server( blocking )
+    def wait_for_reply( self, expected_reply=None, buffer=BUFFER_SIZE):
+        if self.buffer:
+            reply = self.buffer.pop(0)
+        else:
+            received, addr = self.sock.recvfrom( buffer )
+            if not received:
+                print("Server side error!\nClosing client")
+                exit()
+
+            print( "\nReceived:", received)
+            reply = received.decode().rstrip()
+            reply = reply.split("---EOM---")
             
-        reply = received.decode().rstrip()
-        print( "\nReceived:", reply)
+            if len(reply) > 1:
+                self.buffer += reply[1:-1]
+            reply = reply[0]
+
+        print("Processing: ", reply)
         reply = json.loads(reply)
-        
         if "error" in reply.keys():
             print( "ERROR:", reply[ "error" ])
             return False
 
         if expected_reply:
-            return reply.get(expected_reply)
+            return reply.get( expected_reply )
         return reply
 
 
     # Waits for either a server reply or user input( non blocking)
-    def wait_for_reply_or_input( self, expected_reply=None, table_cmds=[]):
+    def wait_for_reply_or_input( self, expected_reply=None, ok_cmds=[]):
         read_list = [self.sock, sys.stdin]
         while True:
-            readable, writable, errored = select.select( read_list, [], [])
-            for s in readable:
-                if sys.stdin in readable:
-                    cmd = sys.stdin.readline()
-                    if cmd:
-                        cmd = cmd.strip().lower()
-                        if cmd in table_cmds:
-                            return None, cmd
-                        else:
-                            print( "Invalid command!")
-                else:
-                    reply = s.recv( BUFFER_SIZE ).decode().rstrip()
-                    print( "Received:", reply )
-                    reply = json.loads(reply)
+            reply = None
+            if self.buffer:
+                reply = self.buffer.pop(0)
+            else:
+                readable, writable, errored = select.select( read_list, [], [])
+                for s in readable:
+                    if sys.stdin in readable:
+                        cmd = sys.stdin.readline()
+                        if cmd:
+                            cmd = cmd.strip().lower()
+                            if cmd in ok_cmds:
+                                return None, cmd
+                            else:
+                                print( "Invalid command!")
+                    else:
+                        reply = s.recv( BUFFER_SIZE ).decode().rstrip()
+                        
+                        print( "Received:", reply )
+                        reply = reply.split("---EOM---")
+                    
+                        if len(reply) > 1:
+                            self.buffer += reply[1:-1]
+                        reply = reply[0]
+                        
+            if reply:
+                print("Processing:\n\n", reply)
+                reply = json.loads(reply)
+                if "error" in reply.keys():
+                    print( "ERROR:", reply.get("error"))
+                    return False, False
 
-                    if "error" in reply.keys():
-                        print( "ERROR:", reply.get("error"))
-                        return False, False
-
-                    if expected_reply:
-                        return reply.get(expected_reply), None
-                    return reply, None
+                if expected_reply:
+                    return reply.get(expected_reply), None
+                return reply, None
 
 
     # Confirm you want to play with these players

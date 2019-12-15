@@ -9,7 +9,8 @@ import sys
 import select
 import random as rand
 from client_modules.player import Player
-
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+import security
 # Chances
 PICK_CHANCE = 0.05
 SWAP_CHANCE = 0.5
@@ -66,13 +67,6 @@ def print_lobby_state( table):
         print("Commands: confirm, exit")
 
 
-def encrypt_cards( deck, key=None ):
-    #TODO
-    # If None, use own key
-    # Else use key
-    return deck
-
-
 def bit_commit( deck ):
     #TODO
     return "BIT-COMMIT"
@@ -94,7 +88,8 @@ class Table:
         self.player_num = player_num
         self.deck = []
         self.passing_data = {"commits": {}, "deck_keys": {}}
-        self.deck_key = "deck_key-TODO" #TODO: generate
+        self.priv_deck_key = None
+        self.pub_deck_key = None
         self.state = "OPEN"
         self.players = players
         self.pl_count = len(self.players)
@@ -104,7 +99,8 @@ class Table:
 
     def start(self):
         self.wait_in_lobby()
-        self.deck_encrypthing()
+        
+        self.deck_encrypting()
         self.card_selection()
         self.commit_deck()
         self.share_deck_key()
@@ -181,10 +177,20 @@ class Table:
                     exit()
         
 
-    def deck_encrypthing( self ):
+    def deck_encrypting( self ):
         reply = self.c.wait_for_reply( "data" )
         deck = reply.get( "deck" )
-        encrypt_cards( deck )
+        # Generate password and IV
+        self.deck_pwd = os.urandom(32)
+        self.deck_iv = os.urandom(16)
+        # Cipher each card        
+        for i in range(0, len(deck)):
+            deck[i] = security.AES_encrypt(
+                pwd=self.deck_pwd,
+                iv=self.deck_iv,
+                text=deck[i]
+            ).decode("utf-8")
+        # Shuffle and relay
         rand.shuffle( deck )
         data = { "deck": deck }
         self.c.relay_data( self.table_id, data, next_player(self) )
@@ -243,7 +249,12 @@ class Table:
 
 
     def share_deck_key( self ):
-        my_key = { str( self.player_num ) : self.deck_key }
+        my_key = { 
+            str(self.player_num): {
+                "pwd": self.deck_pwd.decode(),
+                "iv": self.deck_iv.decode(),
+            } 
+        }
         self.passing_data[ "deck_keys" ].update( my_key )
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 

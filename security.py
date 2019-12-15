@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 
 # Generate a RSA private key
-def generate_priv_key():
+def RSA_generate_priv():
     return rsa.generate_private_key( 
         public_exponent=65537, 
         key_size=1024, 
@@ -30,41 +30,63 @@ def generate_priv_key():
 
 
 # Generate RSA public key from a private key
-def generate_pub_key( privKey ):
+def RSA_generate_pub( privKey ):
     return privKey.public_key()
 
 
-def encrypt( key, text ):
+def RSA_encrypt( key, text ):
     if type(text) is str:
         text = text.encode()
-        text = b64encode( text )
-    ciphertext = key.encrypt(
-        text,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
+    
+    chunk_size = ( key.key_size // 8) - 2 * hashes.SHA256.digest_size - 2
+
+    ciphertext = b''
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        if end > len(text):
+            end = len(text)
+        block = key.encrypt(
+            text[start:end],
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
         )
-    )
-    return ciphertext
+        start = end
+        ciphertext += block
+        
+    return b64encode( ciphertext )
 
 
-def decrypt( priv_key, ciphertext ):
-    plaintext = priv_key.decrypt(
-        ciphertext,
-        padding.OAEP(
-            mgf=padding.MGF1( algorithm=hashes.SHA256() ),
-            algorithm=hashes.SHA256(),
-            label=None
+def RSA_decrypt( priv_key, ciphertext ):
+    chunk_size = 128
+    ciphertext = b64decode( ciphertext )
+    plaintext = b''
+    start = 0
+    while start < len(ciphertext):
+        end = start + chunk_size
+        
+        if end > len(ciphertext):
+            end = len(ciphertext)
+        
+        block = priv_key.decrypt(
+            ciphertext[start:end],
+            padding.OAEP(
+                mgf=padding.MGF1( algorithm=hashes.SHA256() ),
+                algorithm=hashes.SHA256(),
+                label=None
+            )
         )
-    )
-    plaintext = b64decode( plaintext )
-    plaintext.decode('utf-8')
-    return plaintext
+        start = end
+        plaintext += block
+
+    return plaintext.decode('utf-8')
 
 
 # Gets the bytes from this public key
-def get_key_bytes( key ):
+def RSA_key_bytes( key ):
     key_bytes = key.public_bytes(
         encoding = serialization.Encoding.PEM,
         format = serialization.PublicFormat.SubjectPublicKeyInfo
@@ -73,7 +95,7 @@ def get_key_bytes( key ):
 
 
 # Loads a public key from the bytes of another public key
-def load_key( key_bytes ):
+def RSA_load_key( key_bytes ):
     if type(key_bytes) is str:
         key_bytes = key_bytes.encode()
     return serialization.load_pem_public_key(
@@ -82,6 +104,32 @@ def load_key( key_bytes ):
     )
     
 
+def AES_encrypt(pwd, iv, text):
+    if type(text) is str:
+        text = text.encode()
+    
+    cipher = Cipher(
+        algorithm=algorithms.AES(pwd),
+        mode=modes.CTR(iv),
+        backend=default_backend()
+    )
+    encryptor = cipher.encryptor()
+    
+    return b64encode(
+        encryptor.update(text) + encryptor.finalize()
+    )
+    
+
+
+def AES_decrypt(pwd, iv, ciphered):
+    ciphered = b64decode( ciphered )
+    decipher = Cipher(
+        algorithm=algorithms.AES(pwd),
+        mode=modes.CTR(iv),
+        backend=default_backend()
+    )
+    decryptor = decipher.decryptor()
+    return decryptor.update(ciphered) + decryptor.finalize()
 
 
 ############### DEBUG
@@ -92,15 +140,6 @@ def load_key( key_bytes ):
 # print( "Generating public key" )
 # pub_k = generate_pub_key( priv_k )
 
-# # plaintext = "blabla rawdawdawd 1023x"
-# # print( "\nPlaintext:\n", plaintext)
-
-# # ciphered = encrypt( pub_k, plaintext )
-# # print( "\nCiphered text:\n", ciphered )
-
-# # deciphered = decrypt( priv_k, ciphered )
-# # print( "\nDeciphered text:\n", deciphered )
-
 # import json
 
 # msg = { "pubkey": get_key_bytes( pub_k ) }
@@ -110,15 +149,17 @@ def load_key( key_bytes ):
 # key = load_key_from_bytes( rcv["pubkey"] )
 
 
-# t = "abc123123"
+# text = "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC+UwN4n8Jx8Ju4uXQwQBTqfnZS\nYZLzw8g53NkalghcWcBwy+tdkKiK6PlVfuqc+DuFShWOKdasgZk82d2oMf7mHxLM\nZii/MXNgmOtnlw+gFrdWSbatn4P3eRt7I6g8uR5scoCXek3mU4zskb7ZAdLQw1Jo\naUIn0sAIDfJS3g0aMQIDAQAB\n-----END PUBLIC KEY-----\n"
 
-# cipher = encrypt(key, t)
+# en = encrypt(pub_k, text)
+# de = decrypt(priv_k, en)
 
-# decipher = decrypt(priv_k, cipher)
+pwd = os.urandom(32)
+iv = os.urandom(16)
 
-# print("Text:\n",t)
+t = "aaaabbbbbbbc"
 
-# print("Ciphered:\n",cipher)
-
-# print("Deciphered:\n",decipher)
-
+ciph = AES_encrypt(pwd,iv,t)
+print("Ciph:",ciph)
+plain = AES_decrypt(pwd,iv, ciph)
+print("Decip:",plain)

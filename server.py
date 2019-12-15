@@ -3,7 +3,7 @@ import json
 import select
 import time
 import datetime
-import base64
+from base64 import b64decode, b64encode
 import os
 from sys import argv
 import sys
@@ -21,17 +21,25 @@ SERVER_PORT = 50000
 SV_ADDR = (IP, SERVER_PORT)
 
 # Socket configs
-BUFFER_SIZE = 8 * 1024
+BUFFER_SIZE = 32 * 1024
 
 # TCP Socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+sock = socket.socket(
+    socket.AF_INET, 
+    socket.SOCK_STREAM
+)
+sock.setsockopt(
+    socket.SOL_SOCKET,
+    socket.SO_REUSEADDR, 
+    1
+)
 sock.bind(SV_ADDR)
 
+EOM = "---EOM---"
 
 def pre_register_client( client_socket):
-    priv_key = security.generate_priv_key()
-    pub_key = security.generate_pub_key( priv_key )
+    priv_key = security.RSA_generate_priv()
+    pub_key = security.RSA_generate_pub( priv_key )
     new_client = Client(
         socket=client_socket,
         name=None,
@@ -43,9 +51,10 @@ def pre_register_client( client_socket):
 
 def send_pub_key( client_socket ):
     c = pre_registers[ client_socket ]
-    key = security.get_key_bytes( c.sv_pub_key )
+    key = security.RSA_key_bytes( c.sv_pub_key )
     msg = {"pub_key" : key }
-    msg = json.dumps(msg).encode().ljust(BUFFER_SIZE, b' ')
+    msg = json.dumps(msg) + EOM #.ljust(BUFFER_SIZE, b' ')
+    msg = msg.encode()
     client_socket.send( msg )
 
 
@@ -55,7 +64,7 @@ def register_client( msg, client_socket ):
     key = msg.get("pub_key")
 
     c.name = msg.get("name")
-    c.pub_key = security.load_key( key )
+    c.pub_key = security.RSA_load_key( key )
     
     clients[client_socket] = c
     del pre_registers[client_socket]
@@ -86,7 +95,7 @@ def broadcast_new_player( players ):
     player = players[-1]
     new_player = {
         "name": player.client.name,
-        "pub_key": security.get_key_bytes( player.client.pub_key ),
+        "pub_key": security.RSA_key_bytes( player.client.pub_key ),
         "num": player.num 
     }
 
@@ -165,14 +174,14 @@ def join_table_handler (msg, client):
         broadcast_state_change( table.players, "FULL" )
         
 
-def create_table_handler (msg, client):
+def create_table_handler(msg, client):
     table_id = get_new_table_id()
     new_table = Table(table_id)
     new_table.new_player(client)
     
     tables[table_id] = new_table
 
-    reply = {"table_info": new_table.get_table_info(client)}
+    reply = {"table_info": new_table.get_table_info( client )}
     client.send(reply)
 
 
@@ -264,9 +273,10 @@ class Client:
         self.sv_priv_key = sv_priv_key
         self.sv_pub_key = sv_pub_key
 
+
     def send (self, msg):
-        msg = json.dumps(msg).encode().ljust(BUFFER_SIZE, b' ')
-        #TODO: error handling
+        msg = json.dumps(msg) + EOM
+        msg = msg.encode()#.ljust(BUFFER_SIZE, b' ')
         try:
             self.socket.send(msg)
         except socket.error:
@@ -376,7 +386,7 @@ class Table:
             p_list.append({
                 "name": p.client.name,
                 "num": p.num,
-                "pub_key": security.get_key_bytes( p.client.pub_key )
+                "pub_key": security.RSA_key_bytes( p.client.pub_key )
             })
         return p_list
         
@@ -456,9 +466,6 @@ def redirect_messages (msg, client_socket):
         elif intent == "relay":
             relay_handler( msg, client )
 
-        elif intent == "share_deck_key":
-            deck_key_sharing_handler( msg, client )
-
         elif intent == "bit_commit":
             bit_commit_handler( msg, client )
 
@@ -477,8 +484,9 @@ print ("Listening on port",SERVER_PORT,"\n")
 read_list = [sock]
 
 while True:
-    readable, writable, errored = select.select (read_list, [], [])
+    readable, writable, errored = select.select( read_list, [], [] )
     for s in readable:
+
         # New TCP connection
         if s is sock:
             client_socket, address = sock.accept()
@@ -486,13 +494,14 @@ while True:
             pre_register_client( client_socket )
             send_pub_key( client_socket )
             print ("Connection from", address)
+        
         # Client sent a message
         else:
             data = s.recv (BUFFER_SIZE).decode()
             if data:
-                print ("Received:",data)
+                print ("Received:", data)
                 msg = json.loads(data)
-                redirect_messages (msg, s)
+                redirect_messages(msg, s)
             else:
                 print("Client has disconnected")
                 s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
