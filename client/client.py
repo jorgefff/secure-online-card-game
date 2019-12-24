@@ -185,3 +185,19 @@ class Client:
                 
                 return reply, None
 
+
+    def send_pl_confirmation( self, table_id, identities ):
+        #TODO: falta a identidade dos oponentes
+        # "The croupier will only start the table after getting a signed statement
+        # from all players including the identity of the opponents"
+        confirmation = {
+            'intent': "confirm_players",
+            'table_id': table_id,
+            'identities': identities,
+        }
+        msg = {
+            'message': confirmation,
+            'signature': signature,
+        }
+        msg = json.dumps(msg) + EOM
+        self.sock.send(msg.encode())

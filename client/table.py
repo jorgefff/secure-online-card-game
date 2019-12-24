@@ -99,6 +99,7 @@ class Table:
     def start(self):
         self.wait_in_lobby()
         self.player_auth()
+        self.player_confirmation()
         # Cycle:
         self.deck_encrypting()
         self.card_selection()
@@ -243,13 +244,35 @@ class Table:
             auths += 1
             print_lobby_state(self)
 
-        # Confirm you want to play with these people
-        
-        # # Auto-mode: automatically send confirmation when lobby is full
-        # if self.auto and auto_once and self.state == "FULL":
-        #     time.sleep(rand.randrange(1,3))
-        #     self.c.send_pl_confirmation(self.table_id)
-        #     auto_once = False
+
+    # Confirm you want to play with these people
+    def player_confirmation(self):
+        # Auto-mode: automatically send confirmation
+        confirmed = False
+        if self.auto and not confirmed and self.state == 'FULL':
+            identities=[]
+            confirmation = {
+                'intent': 'confirm_players',
+                'table_id': self.table_id,
+                'identities': identities,
+            }
+            fields = [
+                confirmation['intent'],
+                confirmation['table_id'],
+                str(confirmation['identities'])
+            ]
+            signature = self.c.cc.sign(fields)
+            msg = {
+                'message': confirmation,
+                'signature': b64encode(signature).decode('utf-8'),
+            }
+            confirmed = True
+        confirms = 1
+        while confirms < self.max_players:
+            reply = self.c.wait_for_reply_or_input()
+
+
+            confirms += 1
 
 
     def deck_encrypting( self ):
