@@ -9,6 +9,7 @@ class Player:
         self.bit_commit = None
         self.score = 0
         self.rounds_won = 0
+        self.certificate = None
         self.authd = False
         self.confirmed = False
 

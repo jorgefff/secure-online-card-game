@@ -194,7 +194,11 @@ def validate_cert( cert, chain ):
         f.write(cert.public_bytes(Encoding.DER))
 
 
-def validate_sig( msg_fields, sig, cc_key ):
+def validate_sign( msg_fields, sig, certificate ):
+    # Get key
+    cert_der = x509.load_der_x509_certificate( certificate, default_backend() )
+    cc_key = cert_der.public_key()
+
     # Reconstruct signature
     hasher = hashes.Hash(hashes.SHA1(), default_backend())
     for field in msg_fields:

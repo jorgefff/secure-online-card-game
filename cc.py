@@ -37,9 +37,9 @@ class CitizenCard:
         self.pub_cc_key = cert.public_key()
         self.chain = []
         self.sendable_chain = []
-        for cert in self.get_chain(subject):
-            self.chain.append(cert)
-            self.sendable_chain.append(b64encode(cert).decode('utf-8'))
+        for chain_cert in self.get_chain(subject):
+            self.chain.append(chain_cert)
+            self.sendable_chain.append(b64encode(chain_cert).decode('utf-8'))
 
     def _check_lib_files(self):
         print("Checking PKCS11 necessary files")
@@ -252,7 +252,7 @@ class CitizenCard:
 
 
     # Verify a certificate and its chain
-    def verify(self, certificate, chain):
+    def validate_cert(self, certificate, chain):
         # Check if certificate is in trusted certificates list
         # Transform bytes into certificate
         cert = x509.load_der_x509_certificate(certificate, default_backend())
@@ -269,12 +269,12 @@ class CitizenCard:
             with open(os.path.join("client_trusted_certificates", cert_name),"rb") as f:
                 if cert == x509.load_der_x509_certificate( f.read(), default_backend() ):
                     print(" > CERTIFICATE \'{}\' IS VALID".format(cert_name))
-                    return # Only need the lowest trusted
+                    return True # Only need the lowest trusted
 
         # Verify the chain
         if len(chain) != 0:
             try:
-                self.verify(chain[0],chain[1:])
+                return self.validate_cert(chain[0],chain[1:])
             except Exception as e:
                 raise Exception(e)
 

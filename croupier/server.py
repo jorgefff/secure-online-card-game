@@ -88,11 +88,8 @@ def register_client( msg, client_socket ):
         return
 
     # Validate signature
-    cl_cert_der = x509.load_der_x509_certificate( cl_cert, default_backend() )
-    cl_cc_key = cl_cert_der.public_key()
     fields = [intent, name, key, cert_msg, str(msg['chain'])]
-
-    if not security.validate_sig( fields, signature, cl_cc_key ):
+    if not security.validate_sign( fields, signature, cl_cert ):
         print(colored("Client '"+str(name)+"' signature could not be verified", 'red'))
         del pre_registers[client_socket]
         return
@@ -266,11 +263,14 @@ def relay_handler( msg, client ):
     p_num = table.get_player( client ).num
 
     relay_to = msg['relay_to']
-    data = {
-        'message': msg['message'],
-        'from': p_num,
+    relay = {
+        'message': {
+            'from': p_num,
+            'message': msg['message'],
+        },
+        'signature': 'TO-DO-SV-SIG',
     }
-    table.players[ relay_to ].client.send( data )
+    table.players[ relay_to ].client.send( relay )
         
 
 def bit_commit_handler( msg, client ):

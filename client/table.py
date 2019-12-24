@@ -177,11 +177,13 @@ class Table:
         # Self authentication
         my_auth = {
             'name': self.c.cc.name,
+            'pub_key': security.RSA_key_bytes( self.c.pub_key ).decode('utf-8'),
             'certificate': self.c.cc.sendable_cert,
             'chain': self.c.cc.sendable_chain,
         }
         my_sig = self.c.cc.sign([
             my_auth['name'],
+            my_auth['pub_key'],
             my_auth['certificate'],
             str(my_auth['chain']),
         ])
@@ -200,33 +202,41 @@ class Table:
         # Wait for other players to authenticate
         auths = 1
         while auths < self.max_players:
-            msg = self.c.wait_for_reply()
-            # sv_sig = msg['signature']
+            reply = self.c.wait_for_reply()
+            sv_msg = reply['message']
+            sv_sig = reply['signature']
+            src = sv_msg['from']
             
-            src = msg['message']['from']
-            msg = msg['message']['message']
-            
-            # Validate certificate
+            msg = sv_msg['message']['message']
+            signature = b64decode( sv_msg['message']['signature'] )
+
+            # Build chain
             cert = b64decode( msg['certificate'] )
             chain = []
             for chain_cert in msg['chain']:
                 chain.append( b64decode( chain_cert ) )
-            
-            if not self.c.cc.verify( cert , chain):
+
+            # Validate certification chain
+            if not self.c.cc.validate_cert( cert , chain):
                 print("Invalid certificate / chain from player:",src)
                 exit()
 
-            # Validate signature
-            cert_der = x509.load_der_x509_certificate( cert, default_backend() )
-            cc_key = cert_der.public_key()
-            
-            fields = [intent, name, key, cert_msg, str(msg['chain'])]
-            if not security.validate_sig( fields, signature, cc_key ):
-                print("Invalid certificate / chain from player:",src)
+            # Save certificate to validate next signatures
+            self.players[src].certificate = cert
+
+            fields = [
+                msg['name'],
+                msg['pub_key'],
+                msg['certificate'],
+                str(msg['chain']),
+            ]
+
+            if not security.validate_sign( fields, signature, cert ):
+                print("Invalid signature from player:", src)
                 exit()
 
             # Update
-            
+            print("Player validated")
             self.players[src].authd = True
 
             # Wait for next
