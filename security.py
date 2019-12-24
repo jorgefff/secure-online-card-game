@@ -5,7 +5,7 @@ import hashlib
 import binascii
 import unicodedata
 from base64 import b64decode, b64encode
-
+from cryptography.exceptions import *
 from math import *
 from datetime import datetime
 from OpenSSL import crypto
@@ -94,7 +94,7 @@ def RSA_key_bytes( key ):
         encoding = serialization.Encoding.PEM,
         format = serialization.PublicFormat.SubjectPublicKeyInfo
     )
-    return key_bytes.decode('utf-8')
+    return key_bytes
 
 
 # Loads a public key from the bytes of another public key
@@ -133,6 +133,79 @@ def AES_decrypt(pwd, iv, ciphered):
     )
     decryptor = decipher.decryptor()
     return decryptor.update(ciphered) + decryptor.finalize()
+
+
+def validate_cert( cert, chain ):
+    # Transform bytes into certificate
+    cert = x509.load_der_x509_certificate( cert, default_backend() )
+    cert_name = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value+".cer"
+
+    # Get list of trusted certificates by the server        
+    trusted_certs = [
+        f 
+        for f in os.listdir( "server_trusted_certs" ) 
+        if os.path.isfile( os.path.join( "server_trusted_certs", f) )
+    ]
+    
+    # Get list of trusted certificates by server from the clients 
+    trusted_client_certs = [
+        f 
+        for f in os.listdir("server_trusted_certs/client_certs") 
+        if os.path.isfile(os.path.join("server_trusted_certs/client_certs", f))
+    ]
+
+    if cert_name in trusted_certs:
+        with open(os.path.join("server_trusted_certs", cert_name),"rb") as f:
+
+            if cert == x509.load_der_x509_certificate( f.read(), default_backend() ):
+                crl_name = "CRL/cc_ec_cidadao_crl00"+cert_name[-5]+"_crl.crl"
+                with open(crl_name, "rb") as ff:
+                    crl = x509.load_der_x509_crl(ff.read(), default_backend())
+
+                if crl.get_revoked_certificate_by_serial_number(cert.serial_number) == None:
+                    print(" > CERTIFICATE \'{}\' IS TRUSTED".format(cert_name))
+                    return True
+                else:
+                    print("Certificate {} has expired".format(cert_name))
+                    return False
+                
+    elif cert_name in trusted_client_certs:
+        with open(os.path.join("server_trusted_certs/client_certs", cert_name),"rb") as f: 
+            if cert == x509.load_der_x509_certificate(f .read(), default_backend() ):
+                print(" > CERTIFICATE \'{}\' IS TRUSTED".format(cert_name))
+                return True
+
+    else:
+        pass #print(" > CERTIFICATE \'{}\' NOT PART OF TRUSTED CERTIFICATES".format(cert_name))
+            
+    # Verify the chain
+    if len(chain) != 0:
+        try:
+            return validate_cert(chain[0],chain[1:])
+        except ValueError:
+            raise ValueError
+        except Exception as e:
+            raise e
+    else:
+        raise ValueError
+
+    # Add new certificate to server_trusted_certs folder
+    with open("server_trusted_certs/client_certs/"+cert_name, "wb") as f:
+        f.write(cert.public_bytes(Encoding.DER))
+
+
+def validate_sig( msg_fields, sig, cc_key ):
+    # Reconstruct signature
+    hasher = hashes.Hash(hashes.SHA1(), default_backend())
+    for field in msg_fields:
+        hasher.update(field.encode())    
+
+    digest = hasher.finalize()
+    try:
+        cc_key.verify( sig, digest, padding.PKCS1v15(), hashes.SHA1() )
+    except:
+        return False
+    return True
 
 
 ############### DEBUG
