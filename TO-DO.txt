@@ -3,9 +3,9 @@
     - passo extra: trocam mensagens entre eles
     - autentificam-se
 - dinheiro e acordos no inicio
-- recibos
-- jogos entram no server e são adicionados a jogos pelo servidor aleatoriamente
+- recibos: de todas as mensagens enviadas/recebidas?
+- jogadores entram no server e são adicionados a jogos pelo servidor aleatoriamente
 - relay deck:
     encher o resto do deck que passa com lixo (strings de lixo de tamanho aleatorio)
-- verificar #TODO
+- verificar #TODO no codigo
 - apagar codigo DEBUG
