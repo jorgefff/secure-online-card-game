@@ -224,6 +224,7 @@ class Table:
 
             # Save certificate to validate next signatures
             self.players[src].certificate = cert
+            self.players[src].sendable_cert = msg['certificate']
 
             fields = [
                 msg['name'],
@@ -247,32 +248,65 @@ class Table:
 
     # Confirm you want to play with these people
     def player_confirmation(self):
-        # Auto-mode: automatically send confirmation
+        identities = [
+            {   'num': p.num,
+                'name': p.name,
+                'certificate': p.sendable_cert,
+            }
+            for p in self.players
+        ]
+        confirmation = {
+            'intent': 'confirm_players',
+            'table_id': self.table_id,
+            'identities': identities,
+        }
+        fields = [
+            confirmation['intent'],
+            str(confirmation['table_id']),
+            str(confirmation['identities']),
+        ]
+        signature = self.c.cc.sign(fields)
+        my_confirmation = {
+            'message': confirmation,
+            'signature': b64encode(signature).decode('utf-8'),
+        }
+        
+        confirms = 0
         confirmed = False
-        if self.auto and not confirmed and self.state == 'FULL':
-            identities=[]
-            confirmation = {
-                'intent': 'confirm_players',
-                'table_id': self.table_id,
-                'identities': identities,
-            }
-            fields = [
-                confirmation['intent'],
-                confirmation['table_id'],
-                str(confirmation['identities'])
-            ]
-            signature = self.c.cc.sign(fields)
-            msg = {
-                'message': confirmation,
-                'signature': b64encode(signature).decode('utf-8'),
-            }
-            confirmed = True
-        confirms = 1
         while confirms < self.max_players:
-            reply = self.c.wait_for_reply_or_input()
+            # Automatic mode: send confirmation
+            if self.auto and not confirmed and self.state == 'FULL':
+                self.c.send(my_confirmation)
+                confirmed = True
+                confirms += 1
+            
+            # Confirm or receive confirmations
+            msg, cmd = self.c.wait_for_reply_or_input(valid_cmds=self.table_cmds)
+            
+            # User input
+            if cmd and cmd == 'confirm' and not confirmed:
+                self.c.send(my_confirmation)
+                self.players[self.player_num].confirmed = True
+                confirmed = True
+                confirms += 1
+            
+            # Received a message from server
+            if msg:
+                msg = msg['message']['table_update']
+                update = msg['update']
 
+                if update  == 'player_confirmation':
+                    self.player_confirmed(msg['player_num'])
+                    confirms += 1
 
-            confirms += 1
+                elif update == 'player_left':
+                    self.player_left(msg['player_num'])
+
+                elif update == 'table_state':
+                    self.update_state(msg['table_state'])
+
+            # Wait for next
+            print_lobby_state(self)
 
 
     def deck_encrypting( self ):

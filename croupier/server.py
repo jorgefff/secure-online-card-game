@@ -221,7 +221,11 @@ def create_table_handler( msg, client ):
 
 
 def player_confirmation_handler( msg, client ):
+    sig = msg['signature']
+    msg = msg['message']
     table_id = msg['table_id']
+    identities = msg['identities']
+    
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
         client.send(reply)
@@ -497,7 +501,7 @@ def redirect_messages (msg, client_socket):
             create_table_handler (msg, client)
         
         elif intent == 'confirm_players':
-            player_confirmation_handler (msg, client)
+            player_confirmation_handler( full_msg, client )
 
         elif intent == 'relay':
             relay_handler( msg, client )

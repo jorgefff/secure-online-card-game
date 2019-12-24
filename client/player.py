@@ -10,6 +10,7 @@ class Player:
         self.score = 0
         self.rounds_won = 0
         self.certificate = None
+        self.sendable_cert = None
         self.authd = False
         self.confirmed = False
 

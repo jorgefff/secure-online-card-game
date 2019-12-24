@@ -185,6 +185,9 @@ class Client:
                 
                 return reply, None
 
+    def send(self, msg):
+        msg = json.dumps(msg) + EOM
+        self.sock.send(msg.encode())
 
     def send_pl_confirmation( self, table_id, identities ):
         #TODO: falta a identidade dos oponentes

@@ -1,7 +1,4 @@
-
-- confirm_player com a entidade de todos
-    - passo extra: trocam mensagens entre eles
-    - autentificam-se
+- guardar pin para nao estar sempre a introduzir
 - dinheiro e acordos no inicio
 - recibos: de todas as mensagens enviadas/recebidas?
 - jogadores entram no server e são adicionados a jogos pelo servidor aleatoriamente
