@@ -16,6 +16,7 @@ table_id_counter = 0
 tables = {}
 pre_registers = {}
 clients = {}
+buffer = []
 
 # Address
 IP = 'localhost'
@@ -65,7 +66,8 @@ def send_pub_key( client_socket ):
 
 
 def register_client( msg, client_socket ):
-    c = pre_registers.get( client_socket )
+    c = pre_registers[ client_socket ]
+
     # Get all necessary fields
     signature = b64decode( msg['signature'] )
     msg = msg['message']
@@ -127,7 +129,6 @@ def get_new_table_id():
 
     
 def broadcast_new_player( players ):
-    print(colored("broadcast new player",'yellow'))
     player = players[-1]
     new_player = {
         'name': player.client.name,
@@ -183,7 +184,7 @@ def generate_deck():
 
 
 def join_table_handler (msg, client):
-    table_id = msg.get('table_id')
+    table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
         client.send(reply)
@@ -223,7 +224,7 @@ def create_table_handler( msg, client ):
 
 
 def player_confirmation_handler( msg, client ):
-    table_id = msg.get('table_id')
+    table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
         client.send(reply)
@@ -248,7 +249,7 @@ def player_confirmation_handler( msg, client ):
     
 
 def relay_handler( msg, client ):
-    table_id = msg.get('table_id')
+    table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
         client.send(reply)
@@ -256,21 +257,31 @@ def relay_handler( msg, client ):
     
     #TODO: verify players
     #TODO: verify relays (in correct game state)
-    table = tables[ table_id ]
-    relay_to = msg.get('relay_to')
-    data = {'data': msg.get('data')}
+    table = tables[table_id]
+    if not table.player_exists(client):
+        reply = {'error': 'You are not in this table'}
+        client.send(reply)
+        return
+
+    p_num = table.get_player( client ).num
+
+    relay_to = msg['relay_to']
+    data = {
+        'message': msg['message'],
+        'from': p_num,
+    }
     table.players[ relay_to ].client.send( data )
         
 
 def bit_commit_handler( msg, client ):
-    table_id = msg.get('table_id')
+    table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
         client.send(reply)
         return
 
     table = tables[ table_id ]
-    commit = msg.get('bit_commit')
+    commit = msg['bit_commit']
     error = table.add_commit( client, commit )
 
     if error:
@@ -463,9 +474,9 @@ class Table:
 
 def redirect_messages (msg, client_socket):
     full_msg = msg
-    msg = full_msg.get('message')
-    intent = msg.get('intent')
-    #signature = full_msg.get('signature') #TODO: validate
+    msg = full_msg['message']
+    intent = msg['intent']
+    #signature = full_msg['signature') #TODO: validate
     
     
     # New client
@@ -509,29 +520,38 @@ print ("Listening on port",SERVER_PORT,"\n")
 read_list = [sock]
 
 while True:
-    readable, writable, errored = select.select( read_list, [], [] )
-    for s in readable:
+    
+    if buffer:
+        (s, msg) = buffer.pop(0)
+        msg = json.loads(msg)
+        redirect_messages( msg , s )
 
-        # New TCP connection
-        if s is sock:
-            client_socket, address = sock.accept()
-            read_list.append( client_socket )
-            pre_register_client( client_socket )
-            send_pub_key( client_socket )
-            print ("Connection from", address)
-        
-        # Client sent a message
-        else:
-            data = s.recv (BUFFER_SIZE)
-            if data:
-                #print("Len:",len(data))
-                data = data.decode()
-                print ("Received:", data)
-                msg = json.loads(data)
-                redirect_messages(msg, s)
+    else:
+        readable, writable, errored = select.select( read_list, [], [] )
+        for s in readable:
+            # New TCP connection
+            if s is sock:
+                client_socket, address = sock.accept()
+                read_list.append( client_socket )
+                pre_register_client( client_socket )
+                send_pub_key( client_socket )
+                print( "Connection from", address )
+            
+            # Client sent a message
             else:
-                print("Client has disconnected")
-                s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
-                read_list.remove (s)
-                
+                received = s.recv (BUFFER_SIZE)
+                if received:
+                    data = received.decode().split(EOM)
+                    for m in data[1:-1]:
+                        if m:
+                            buffer.append((s,m))
+                    data = data[0]
+                    print( "Received:\n", data,"\n" )
+                    msg = json.loads(data)
+                    redirect_messages(msg, s)
+                else:
+                    print( "Client has disconnected" )
+                    s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
+                    read_list.remove (s)
+                    
                 

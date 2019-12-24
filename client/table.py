@@ -8,6 +8,10 @@ from sys import argv
 import sys
 import select
 import random as rand
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes  
+from cryptography.hazmat.backends import default_backend
+from termcolor import colored
 from player import Player
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
@@ -47,26 +51,26 @@ def random_player(table):
 
 # Shows the current state of the table
 def print_lobby_state( table):
+    print("\n\n\n\n\n------------------")
+    print("Current state:", table.state)
+    print("Players:")
     if table.state == 'OPEN':
-        print("\n\n\n\n\n------------------")
-        print("Players:")
+        
         for p in table.players:
             print(p.num+1, "-", p.name)
         print("\n")
         print("Commands: exit")
 
     elif table.state == 'FULL':
-        print("\n\n\n\n\n------------------")
-        print("Players:")
         for p in table.players:
             if p.confirmed:
-                confirmed = "Yes"
+                confirmed = colored("Yes",'green')
             else:
-                confirmed = "No"
+                confirmed = colored("No", 'red')
             if p.authd:
-                authd = "Yes"
+                authd = colored("Yes",'green')
             else:
-                authd = "No"
+                authd = colored("No",'red')
             print(p.num+1, "-", p.name,"- Auth:", authd, "- Confirmed:" ,confirmed)
         print("\n")
         print("Commands: confirm, exit")
@@ -173,17 +177,17 @@ class Table:
         # Self authentication
         my_auth = {
             'name': self.c.cc.name,
-            'certifate': self.c.cc.sendable_cert,
+            'certificate': self.c.cc.sendable_cert,
             'chain': self.c.cc.sendable_chain,
         }
-        my_sig = self.cc.sign(
+        my_sig = self.c.cc.sign([
             my_auth['name'],
             my_auth['certificate'],
-            my_auth['chain'],
-        )
+            str(my_auth['chain']),
+        ])
         my_msg = {
             'message': my_auth,
-            'signature': my_sig,
+            'signature': b64encode(my_sig).decode('utf-8'),
         }
         
         # Relay auth to other players
@@ -191,23 +195,46 @@ class Table:
             if p.num != self.player_num:
                 self.c.relay_data( self.table_id, my_msg, p)
         
+        self.players[self.player_num].authd = True
+
         # Wait for other players to authenticate
         auths = 1
         while auths < self.max_players:
             msg = self.c.wait_for_reply()
-            sig = msg['signature']
-            msg = msg['message']
+            # sv_sig = msg['signature']
+            
+            src = msg['message']['from']
+            msg = msg['message']['message']
+            
+            # Validate certificate
+            cert = b64decode( msg['certificate'] )
+            chain = []
+            for chain_cert in msg['chain']:
+                chain.append( b64decode( chain_cert ) )
+            
+            if not self.c.cc.verify( cert , chain):
+                print("Invalid certificate / chain from player:",src)
+                exit()
 
-            # Validate
+            # Validate signature
+            cert_der = x509.load_der_x509_certificate( cert, default_backend() )
+            cc_key = cert_der.public_key()
+            
+            fields = [intent, name, key, cert_msg, str(msg['chain'])]
+            if not security.validate_sig( fields, signature, cc_key ):
+                print("Invalid certificate / chain from player:",src)
+                exit()
 
+            # Update
+            
+            self.players[src].authd = True
 
             # Wait for next
             auths += 1
             print_lobby_state(self)
 
         # Confirm you want to play with these people
-
-
+        
         # # Auto-mode: automatically send confirmation when lobby is full
         # if self.auto and auto_once and self.state == "FULL":
         #     time.sleep(rand.randrange(1,3))
@@ -216,8 +243,8 @@ class Table:
 
 
     def deck_encrypting( self ):
-        reply = self.c.wait_for_reply( 'data' )
-        deck = reply[ 'deck' ]
+        reply = self.c.wait_for_reply()
+        deck = reply['message']['message']['deck']
         # Generate password and IV
         self.deck_pwd = os.urandom(32)
         self.deck_iv = os.urandom(16)
@@ -236,7 +263,7 @@ class Table:
 
     def card_selection( self ):
         while True:
-            reply = self.c.wait_for_reply( 'data' )
+            reply = self.c.wait_for_reply()
 
             # Someone started bit commit process
             if 'commits' in reply.keys():

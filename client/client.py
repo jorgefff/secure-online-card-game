@@ -12,7 +12,7 @@ from cc import CitizenCard
 
 BUFFER_SIZE = 32 * 1024
 
-hashes.SHA1()
+EOM = '---EOM---'
 
 class Client:
     def __init__( self, ip, port ):
@@ -66,8 +66,8 @@ class Client:
             'message' : msg,
             'signature' : b64encode(signature).decode('utf-8')
         }
-        msg = json.dumps(msg).encode()
-        self.sock.send(msg)
+        msg = json.dumps(msg) + EOM
+        self.sock.send(msg.encode())
     
     
     def get_tables( self ):
@@ -76,8 +76,8 @@ class Client:
                 'intent' : 'get_table_list'
             }
         }
-        request = json.dumps(request).encode()
-        self.sock.send(request)
+        request = json.dumps(request) + EOM
+        self.sock.send(request.encode())
         reply = self.wait_for_reply()
         return reply['table_list']
 
@@ -89,8 +89,8 @@ class Client:
                 'table_id' : table_id
             }
         }
-        request = json.dumps(request).encode()
-        self.sock.send(request)
+        request = json.dumps(request) + EOM
+        self.sock.send(request.encode())
         reply = self.wait_for_reply()
         return reply['message']['table_info']
 
@@ -101,8 +101,8 @@ class Client:
                 'intent': 'create_table'
             } 
         }
-        request = json.dumps( request ).encode()
-        self.sock.send( request )
+        request = json.dumps(request) + EOM
+        self.sock.send(request.encode())
         reply = self.wait_for_reply()
         return reply['message']['table_info']
 
@@ -113,11 +113,11 @@ class Client:
                 'intent': 'relay',
                 'table_id': table_id,
                 'relay_to': p.num,
-                'data': data,
+                'message': data,
             }
         }
-        msg = json.dumps(msg).encode()
-        self.sock.send(msg)
+        msg = json.dumps(msg) + EOM
+        self.sock.send(msg.encode())
 
 
     # Waits for a reply from server( blocking )
@@ -133,7 +133,7 @@ class Client:
 
             print( "\nReceived:", received)
             reply = received.decode().rstrip()
-            reply = reply.split("---EOM---")
+            reply = reply.split(EOM)
             
             if len(reply) > 1:
                 self.buffer += reply[1:-1]
@@ -172,7 +172,7 @@ class Client:
                         if not received:
                             print("Server disconnected")
                             exit()
-                        reply = received.split("---EOM---")
+                        reply = received.split(EOM)
                         if len(reply) > 1:
                             self.buffer += reply[1:-1]
                         reply = reply[0]
