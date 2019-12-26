@@ -108,20 +108,25 @@ class Client:
 
 
     def relay_data( self, table_id, data, p ):
+        ciph_data = data#security.RSA_encrypt(p.pub_key, data).decode('utf-8')
         msg = {
             'message': {
                 'intent': 'relay',
                 'table_id': table_id,
                 'relay_to': p.num,
-                'message': data,
+                'relay': ciph_data,
             }
         }
         msg = json.dumps(msg) + EOM
         self.sock.send(msg.encode())
 
+    def load_relayed_data( self, ciph_data ):
+        deciph_data = security.RSA_decrypt( self.priv_key, ciph_data ).decode('utf-8')
+        data = json.loads( deciph_data )
+        return data
 
     # Waits for a reply from server( blocking )
-    def wait_for_reply( self, expected_reply=None, bypass_buffer=False ):
+    def wait_for_reply( self, bypass_buffer=False ):
         if not bypass_buffer and self.buffer:
             reply = self.buffer.pop(0)
             print("Processing: ", reply)
@@ -148,7 +153,7 @@ class Client:
 
 
     # Waits for either a server reply or user input ( non blocking )
-    def wait_for_reply_or_input( self, expected_reply=None, bypass_buffer=False, valid_cmds=[] ):
+    def wait_for_reply_or_input( self, bypass_buffer=False, valid_cmds=[] ):
         read_list = [self.sock, sys.stdin]
         while True:
             reply = None

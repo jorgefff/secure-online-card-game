@@ -50,18 +50,19 @@ def random_player(table):
 
 
 # Shows the current state of the table
-def print_lobby_state( table):
-    print("\n\n\n\n\n------------------")
+def print_lobby_state( table ):
+    print("\n\n\n\n\n------------------")    
     print("Current state:", table.state)
-    print("Players:")
+
     if table.state == 'OPEN':
-        
+        print("Players:")
         for p in table.players:
             print(p.num+1, "-", p.name)
         print("\n")
         print("Commands: exit")
 
     elif table.state == 'FULL':
+        print("Players:")
         for p in table.players:
             if p.confirmed:
                 confirmed = colored("Yes",'green')
@@ -74,6 +75,7 @@ def print_lobby_state( table):
             print(p.num+1, "-", p.name,"- Auth:", authd, "- Confirmed:" ,confirmed)
         print("\n")
         print("Commands: confirm, exit")
+
 
 
 #########################################################################
@@ -202,22 +204,35 @@ class Table:
 
         # Wait for other players to authenticate
         auths = 1
+        buffer_reads = 0
+        count_reads = False
         bypass = False
         while auths < self.max_players:
-            reply = self.c.wait_for_reply( bypass_buffer=bypass )
-            sv_msg = reply['message']
-            bypass = False
+            if count_reads and buffer_reads >= len( self.c.buffer ):
+                bypass = True
+                count_reads = False
+                buffer_reads = 0
 
+            reply = self.c.wait_for_reply( bypass_buffer=bypass )
+            
+            bypass = False
+            if count_reads:
+                buffer_reads += 1
+
+            sv_msg = reply['message']
+
+            # Cycle buffer before checking for new msg
             if 'table_update' in sv_msg.keys():
                 self.c.buffer.append( json.dumps( reply ) )
-                bypass = True
+                count_reads = True
                 continue
-
+            
+            
             sv_sig = reply['signature']
             src = sv_msg['from']
             
-            msg = sv_msg['message']['message']
-            signature = b64decode( sv_msg['message']['signature'] )
+            msg = sv_msg['relayed']['message']
+            signature = b64decode( sv_msg['relayed']['signature'] )
 
             # Build chain
             cert = b64decode( msg['certificate'] )
@@ -280,14 +295,30 @@ class Table:
         
         confirms = 0
         confirmed = False
-        while confirms < self.max_players:
+        buffer_reads = 0
+        count_reads = False
+        bypass = False
+        while confirms < self.max_players or self.state=='FULL':
             # Automatic mode: send confirmation
             if self.auto and not confirmed and self.state == 'FULL':
                 self.c.send(my_confirmation)
                 confirmed = True
             
+            if count_reads and buffer_reads >= len( self.c.buffer ):
+                count_reads = False
+                buffer_reads = 0
+                bypass = True
+
             # Confirm or receive confirmations
-            msg, cmd = self.c.wait_for_reply_or_input( valid_cmds=self.table_cmds )
+            msg, cmd = self.c.wait_for_reply_or_input( 
+                bypass_buffer=bypass,
+                valid_cmds=self.table_cmds
+            )
+
+            bypass = False
+            if count_reads:
+                buffer_reads += 1
+                
             
             # User input
             if cmd and cmd == 'confirm' and not confirmed:
@@ -296,6 +327,10 @@ class Table:
             
             # Received a message from server
             if msg:
+                if 'relayed' in msg['message'].keys():
+                    count_reads = True
+                    continue
+
                 msg = msg['message']['table_update']
                 update = msg['update']
 
@@ -314,20 +349,23 @@ class Table:
 
 
     def deck_encrypting( self ):
+        print( "Encryping deck" )
         reply = self.c.wait_for_reply()
-        deck = reply['message']['message']['deck']
+        deck = reply['message']['relayed']['deck']
         # Generate password and IV
         self.deck_pwd = os.urandom(32)
         self.deck_iv = os.urandom(16)
         # Cipher each card        
-        for i in range(0, len(deck)):
+        for i in range(1, len(deck)):
             deck[i] = security.AES_encrypt(
                 pwd=self.deck_pwd,
                 iv=self.deck_iv,
                 text=deck[i]
             ).decode('utf-8')
         # Shuffle and relay
-        rand.shuffle( deck )
+        shuffled = deck[1:]
+        rand.shuffle( shuffled )
+        deck = deck[0:1] + shuffled
         data = { 'deck': deck }
         self.c.relay_data( self.table_id, data, next_player(self) )
 
@@ -337,25 +375,26 @@ class Table:
             reply = self.c.wait_for_reply()
 
             # Someone started bit commit process
-            if 'commits' in reply.keys():
-                commits = reply[ 'commits' ]
-                self.passing_data[ 'commits' ].update( commits )
+            if 'commits' in reply['message']['relayed'].keys():
+                commits = reply['message']['relayed']['commits']
+                self.passing_data['commits'].update( commits )
                 break
             
-            deck_passing = reply[ 'deck' ] 
-            passing_size = len( deck_passing )
+            deck_passing = reply['message']['relayed']['deck'] 
+            passing_size = deck_passing[0]
             deck_size = len( self.deck )
 
             # The passing deck is empty - decide if start commit process
             if passing_size == 0 and decide_to_commit():
                 break
             
-            # Pick one
-            elif deck_size < 13 and decide_to_pick():    
-                pick = rand.randrange( 0, passing_size )
+            # Pick one            
+            elif deck_size < 13 and decide_to_pick():
+                pick = rand.randrange( 1, passing_size+1 )
                 card = deck_passing.pop( pick )
-                passing_size -= 1
+                deck_passing.append( security.rand_ciphered() )
                 self.deck.append( card )
+                passing_size -= 1
                 deck_size += 1
             
             # Swap cards
@@ -365,7 +404,7 @@ class Table:
                 while swaps > 0:
                     swaps -= 1
                     # Pick 2 random positions
-                    passing_pick = rand.randrange( 0, passing_size )
+                    passing_pick = rand.randrange( 1, passing_size+1 )
                     my_pick = rand.randrange( 0, deck_size )
                     # Take the cards
                     passing_card = deck_passing[passing_pick]
@@ -376,8 +415,13 @@ class Table:
 
             # Shuffle
             if passing_size > 1:
-                rand.shuffle( deck_passing )
+                shuffled = deck_passing[1:passing_size+1]
+                rand.shuffle( shuffled )
+                deck_passing[1:passing_size+1] = shuffled
             
+            # Update size
+            deck_passing[0] = passing_size
+
             # Send to random player
             data = {'deck': deck_passing }
             self.c.relay_data( self.table_id, data, random_player(self) )
@@ -387,13 +431,13 @@ class Table:
         commit = 'BIT-COMMIT' #TODO
         commit = b64encode( commit.encode() ).decode('utf-8')
         my_commit = { str( self.player_num ): commit }
-        self.passing_data[ 'commits' ].update( my_commit )
+        self.passing_data['commits' ].update( my_commit )
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
-        while len( self.passing_data[ 'commits' ] ) < 4:
-            data = self.c.wait_for_reply( 'data' )
-            commits = data[ 'commits' ]
-            self.passing_data[ 'commits' ].update( commits )
+        while len( self.passing_data['commits'] ) < 4:
+            data = self.c.wait_for_reply()
+            commits = data['message']['relayed']['commits']
+            self.passing_data['commits'].update( commits )
             self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
 
@@ -404,13 +448,13 @@ class Table:
                 'iv': b64encode( self.deck_iv ).decode('utf-8'),
             }
         }
-        self.passing_data[ 'deck_keys' ].update( my_key )
+        self.passing_data['deck_keys'].update( my_key )
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
-        while len( self.passing_data[ 'deck_keys' ] ) < 4:
-            data = self.c.wait_for_reply( 'data' )
-            deck_keys = data[ 'deck_keys' ]
-            self.passing_data[ 'deck_keys' ].update( deck_keys )
+        while len( self.passing_data['deck_keys'] ) < 4:
+            data = self.c.wait_for_reply()
+            deck_keys = data['message']['relayed']['deck_keys']
+            self.passing_data['deck_keys'].update( deck_keys )
             self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
 
@@ -452,6 +496,5 @@ class Table:
         print("\n\nMy deck:", self.deck)
         
         print("The game is starting!")
-        while True:
-            time.sleep(1)
+        exit()
 

@@ -113,7 +113,9 @@ def send_table_list( client_socket ):
                 'max_players': table.max_player_count})
 
     msg = {
-        'message': {'table_list': table_list},
+        'message': {
+            'table_list': table_list
+        },
     }
     client_socket.send(msg)
 
@@ -180,7 +182,7 @@ def generate_deck():
             deck.append( suit + "-" + sp )
         for n in range( 2,11 ):
             deck.append( suit + "-" + str( n ))
-    return deck
+    return [len(deck)] + deck
 
 
 def join_table_handler (msg, client):
@@ -199,7 +201,9 @@ def join_table_handler (msg, client):
         return    
     
     reply = {
-        'message': {'table_info': table.get_table_info(client)},
+        'message': {
+            'table_info': table.get_table_info(client)
+        },
         'signature': 'TO-DO-SV-SIG',
     }
     client.send(reply)
@@ -219,7 +223,9 @@ def create_table_handler( msg, client ):
     tables[table_id] = new_table
 
     reply = {
-        'message': {'table_info': new_table.get_table_info( client )},
+        'message': {
+            'table_info': new_table.get_table_info( client )
+        },
         'signature': 'TO-DO-SV-SIG',
     }
     client.send(reply)
@@ -250,14 +256,16 @@ def player_confirmation_handler( msg, client ):
     if table.all_confirmed():
         broadcast_state_change(table.players, 'SHUFFLE')
         deck = generate_deck()
-        msg = {'data': { 'deck': deck }}
+        msg = {
+            'message': {
+                'relayed': { 
+                    'deck': deck }
+            }
+        }
         table.players[0].client.send(msg)
     
-relay_counter = 0#DEBUG
 def relay_handler( msg, client ):
-    global relay_counter
-    relay_counter += 1#DEBUG
-    print(colored("Counter "+str(relay_counter),'yellow')) #DEBUG
+    msg = msg['message']
     table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
@@ -278,7 +286,7 @@ def relay_handler( msg, client ):
     relay = {
         'message': {
             'from': p_num,
-            'message': msg['message'],
+            'relayed': msg['relay'],
         },
         'signature': 'TO-DO-SV-SIG',
     }
@@ -512,7 +520,7 @@ def redirect_messages (msg, client_socket):
             player_confirmation_handler( full_msg, client )
 
         elif intent == 'relay':
-            relay_handler( msg, client )
+            relay_handler( full_msg, client )
 
         elif intent == 'bit_commit':
             bit_commit_handler( msg, client )

@@ -135,6 +135,13 @@ def AES_decrypt(pwd, iv, ciphered):
     return decryptor.update(ciphered) + decryptor.finalize()
 
 
+def rand_ciphered(psiz=32, isiz=16, ssiz=12):
+    pwd = os.urandom(psiz)
+    iv = os.urandom(isiz)
+    randstring = os.urandom(ssiz)
+    return b64encode(AES_encrypt( pwd, iv, randstring )).decode('utf-8')
+
+
 def validate_cert( cert, chain ):
     # Transform bytes into certificate
     cert = x509.load_der_x509_certificate( cert, default_backend() )
@@ -240,3 +247,6 @@ def validate_cc_sign( msg_fields, sig, certificate ):
     except:
         return False
     return True
+
+
+print(rand_ciphered())

@@ -279,3 +279,4 @@ class CitizenCard:
                 return self.validate_cert(chain[0],chain[1:])
             except Exception as e:
                 raise Exception(e)
+
