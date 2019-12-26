@@ -1,8 +1,11 @@
-- guardar pin para nao estar sempre a introduzir
+- assinatures do server
+- na confirmaçao ele está a enviar o proprio cert como NULL
+- no inicio do jogo o server manda: "I <NAME> agree to the fee of $$" que tem q ser assinada e enviado de volta
 - dinheiro e acordos no inicio
 - recibos: de todas as mensagens enviadas/recebidas?
 - jogadores entram no server e são adicionados a jogos pelo servidor aleatoriamente
 - relay deck:
     encher o resto do deck que passa com lixo (strings de lixo de tamanho aleatorio)
+
 - verificar #TODO no codigo
 - apagar codigo DEBUG

@@ -178,7 +178,7 @@ class Table:
         # Self authentication
         my_auth = {
             'name': self.c.cc.name,
-            'pub_key': security.RSA_key_bytes( self.c.pub_key ).decode('utf-8'),
+            'pub_key': security.RSA_sendable_key( self.c.pub_key ),
             'certificate': self.c.cc.sendable_cert,
             'chain': self.c.cc.sendable_chain,
         }
@@ -202,9 +202,17 @@ class Table:
 
         # Wait for other players to authenticate
         auths = 1
+        bypass = False
         while auths < self.max_players:
-            reply = self.c.wait_for_reply()
+            reply = self.c.wait_for_reply( bypass_buffer=bypass )
             sv_msg = reply['message']
+            bypass = False
+
+            if 'table_update' in sv_msg.keys():
+                self.c.buffer.append( json.dumps( reply ) )
+                bypass = True
+                continue
+
             sv_sig = reply['signature']
             src = sv_msg['from']
             
@@ -222,10 +230,6 @@ class Table:
                 print("Invalid certificate / chain from player:",src)
                 exit()
 
-            # Save certificate to validate next signatures
-            self.players[src].certificate = cert
-            self.players[src].sendable_cert = msg['certificate']
-
             fields = [
                 msg['name'],
                 msg['pub_key'],
@@ -233,12 +237,15 @@ class Table:
                 str(msg['chain']),
             ]
 
-            if not security.validate_sign( fields, signature, cert ):
+            if not security.validate_cc_sign( fields, signature, cert ):
                 print("Invalid signature from player:", src)
                 exit()
 
+
             # Update
             print("Player validated")
+            self.players[src].certificate = cert
+            self.players[src].sendable_cert = msg['certificate']
             self.players[src].authd = True
 
             # Wait for next
@@ -251,8 +258,8 @@ class Table:
         identities = [
             {   'num': p.num,
                 'name': p.name,
-                'certificate': p.sendable_cert,
-            }
+                'pub_key': security.RSA_sendable_key( p.pub_key ),
+            } 
             for p in self.players
         ]
         confirmation = {
@@ -265,7 +272,7 @@ class Table:
             str(confirmation['table_id']),
             str(confirmation['identities']),
         ]
-        signature = self.c.cc.sign(fields)
+        signature = security.sign( fields, self.c.priv_key )
         my_confirmation = {
             'message': confirmation,
             'signature': b64encode(signature).decode('utf-8'),
@@ -278,17 +285,14 @@ class Table:
             if self.auto and not confirmed and self.state == 'FULL':
                 self.c.send(my_confirmation)
                 confirmed = True
-                confirms += 1
             
             # Confirm or receive confirmations
-            msg, cmd = self.c.wait_for_reply_or_input(valid_cmds=self.table_cmds)
+            msg, cmd = self.c.wait_for_reply_or_input( valid_cmds=self.table_cmds )
             
             # User input
             if cmd and cmd == 'confirm' and not confirmed:
                 self.c.send(my_confirmation)
-                self.players[self.player_num].confirmed = True
                 confirmed = True
-                confirms += 1
             
             # Received a message from server
             if msg:

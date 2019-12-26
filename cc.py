@@ -29,7 +29,7 @@ class CitizenCard:
             self.extract_certificates()
         print("============================\n")
         self.certificate = self.get_certificate('AUTHENTICATION')
-        self.sendable_cert = b64encode(self.certificate).decode('utf-8')
+        self.sendable_cert = b64encode( self.certificate ).decode('utf-8')
         cert = x509.load_der_x509_certificate(self.certificate, default_backend())
         subject = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
         self.subject = subject
@@ -92,7 +92,7 @@ class CitizenCard:
         print("Creating new PKCS11 session")
         self.PKCS11_session = self.pkcs11.openSession( self.slot )
         return self.PKCS11_session
-        
+
 
     # Extract the certificates from the Citizen Card
     def extract_certificates(self):
@@ -134,9 +134,6 @@ class CitizenCard:
                 # Obtain certificate's issuer
                 issuer = cert.issuer.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
                 
-                # if self.name is None:
-                #     self.name = subject
-
                 print("\t-------------")
                 print("\tSubject:",subject)
                 print("\tIssuer:",issuer)
@@ -244,7 +241,9 @@ class CitizenCard:
                 label = "CITIZEN AUTHENTICATION KEY"
                 priv_k = self.PKCS11_session.findObjects([(CKA_CLASS, CKO_PRIVATE_KEY), (CKA_LABEL, label)])[0]
                 mechanism = PyKCS11.Mechanism(CKM_SHA1_RSA_PKCS)
+                # self.PKCS11_session.initPin()
                 return bytes(self.PKCS11_session.sign(priv_k, digest, mechanism))
+                
             except PyKCS11.PyKCS11Error as e:
                 print("Could not sign the message: ", e )
             except IndexError:
@@ -255,6 +254,9 @@ class CitizenCard:
     def validate_cert(self, certificate, chain):
         # Check if certificate is in trusted certificates list
         # Transform bytes into certificate
+        if type(certificate) is str:
+            certificate = b64decode( certificate ).encode()
+            
         cert = x509.load_der_x509_certificate(certificate, default_backend())
         cert_name = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value+".cer"
 
@@ -277,4 +279,3 @@ class CitizenCard:
                 return self.validate_cert(chain[0],chain[1:])
             except Exception as e:
                 raise Exception(e)
-

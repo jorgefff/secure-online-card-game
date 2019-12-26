@@ -10,7 +10,7 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 from cc import CitizenCard
 
-BUFFER_SIZE = 32 * 1024
+BUFFER_SIZE = 64 * 1024
 
 EOM = '---EOM---'
 
@@ -45,7 +45,7 @@ class Client:
         msg = {
             'intent': 'register',
             'name': self.cc.name,
-            'pub_key':  security.RSA_key_bytes( self.pub_key ).decode('utf-8'),
+            'pub_key':  security.RSA_sendable_key( self.pub_key ),
             'certificate': self.cc.sendable_cert,
             'chain': self.cc.sendable_chain
         }
@@ -121,12 +121,12 @@ class Client:
 
 
     # Waits for a reply from server( blocking )
-    def wait_for_reply( self, expected_reply=None, buffer=BUFFER_SIZE ):
-        if self.buffer:
+    def wait_for_reply( self, expected_reply=None, bypass_buffer=False ):
+        if not bypass_buffer and self.buffer:
             reply = self.buffer.pop(0)
             print("Processing: ", reply)
         else:
-            received, addr = self.sock.recvfrom( buffer )
+            received, addr = self.sock.recvfrom( BUFFER_SIZE )
             if not received:
                 print("Server side error!\nClosing client")
                 exit()
@@ -148,11 +148,11 @@ class Client:
 
 
     # Waits for either a server reply or user input ( non blocking )
-    def wait_for_reply_or_input( self, expected_reply=None, valid_cmds=[] ):
+    def wait_for_reply_or_input( self, expected_reply=None, bypass_buffer=False, valid_cmds=[] ):
         read_list = [self.sock, sys.stdin]
         while True:
             reply = None
-            if self.buffer:
+            if not bypass_buffer and self.buffer:
                 reply = self.buffer.pop(0)
                 print("Processing:\n\n", reply)
             else:
@@ -186,21 +186,5 @@ class Client:
                 return reply, None
 
     def send(self, msg):
-        msg = json.dumps(msg) + EOM
-        self.sock.send(msg.encode())
-
-    def send_pl_confirmation( self, table_id, identities ):
-        #TODO: falta a identidade dos oponentes
-        # "The croupier will only start the table after getting a signed statement
-        # from all players including the identity of the opponents"
-        confirmation = {
-            'intent': "confirm_players",
-            'table_id': table_id,
-            'identities': identities,
-        }
-        msg = {
-            'message': confirmation,
-            'signature': signature,
-        }
         msg = json.dumps(msg) + EOM
         self.sock.send(msg.encode())

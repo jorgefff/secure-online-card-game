@@ -24,7 +24,7 @@ SERVER_PORT = 50000
 SV_ADDR = (IP, SERVER_PORT)
 
 # Socket configs
-BUFFER_SIZE = 32 * 1024
+BUFFER_SIZE = 64 * 1024
 
 # TCP Socket
 sock = socket.socket(
@@ -54,7 +54,7 @@ def pre_register_client( client_socket):
 
 def send_pub_key( client_socket ):
     c = pre_registers[ client_socket ]
-    key_bytes = security.RSA_key_bytes( c.sv_pub_key ).decode('utf-8')
+    key_bytes = security.RSA_sendable_key( c.sv_pub_key )
     msg = {'pub_key' : key_bytes }
     msg = {
         'message': msg,
@@ -89,7 +89,7 @@ def register_client( msg, client_socket ):
 
     # Validate signature
     fields = [intent, name, key, cert_msg, str(msg['chain'])]
-    if not security.validate_sign( fields, signature, cl_cert ):
+    if not security.validate_cc_sign( fields, signature, cl_cert ):
         print(colored("Client '"+str(name)+"' signature could not be verified", 'red'))
         del pre_registers[client_socket]
         return
@@ -129,7 +129,7 @@ def broadcast_new_player( players ):
     player = players[-1]
     new_player = {
         'name': player.client.name,
-        'pub_key': security.RSA_key_bytes( player.client.pub_key ).decode('utf-8'),
+        'pub_key': security.RSA_sendable_key( player.client.pub_key ),
         'num': player.num 
     }
 
@@ -140,6 +140,7 @@ def broadcast_new_player( players ):
                 'new_player': new_player}}
         msg = {
             'message': msg,
+            'signature': 'TO-DO-SV-SIG',
         }
         p.client.send(msg)
 
@@ -152,6 +153,7 @@ def broadcast_player_confirmation( players, pl_num ):
                 'player_num': pl_num}}
         msg = {
             'message': msg,
+            'signature': 'TO-DO-SV-SIG',
         }
         p.client.send(msg)
 
@@ -164,6 +166,7 @@ def broadcast_state_change( players, new_state ):
                 'table_state': new_state}}
         msg = {
             'message': msg,
+            'signature': 'TO-DO-SV-SIG',
         }
         p.client.send(msg)
 
@@ -196,7 +199,8 @@ def join_table_handler (msg, client):
         return    
     
     reply = {
-        'message': {'table_info': table.get_table_info(client)}
+        'message': {'table_info': table.get_table_info(client)},
+        'signature': 'TO-DO-SV-SIG',
     }
     client.send(reply)
     
@@ -215,7 +219,8 @@ def create_table_handler( msg, client ):
     tables[table_id] = new_table
 
     reply = {
-        'message': {'table_info': new_table.get_table_info( client )}
+        'message': {'table_info': new_table.get_table_info( client )},
+        'signature': 'TO-DO-SV-SIG',
     }
     client.send(reply)
 
@@ -225,7 +230,7 @@ def player_confirmation_handler( msg, client ):
     msg = msg['message']
     table_id = msg['table_id']
     identities = msg['identities']
-    
+
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
         client.send(reply)
@@ -248,8 +253,11 @@ def player_confirmation_handler( msg, client ):
         msg = {'data': { 'deck': deck }}
         table.players[0].client.send(msg)
     
-
+relay_counter = 0#DEBUG
 def relay_handler( msg, client ):
+    global relay_counter
+    relay_counter += 1#DEBUG
+    print(colored("Counter "+str(relay_counter),'yellow')) #DEBUG
     table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
@@ -422,7 +430,7 @@ class Table:
             p_list.append({
                 'name': p.client.name,
                 'num': p.num,
-                'pub_key': security.RSA_key_bytes( p.client.pub_key ).decode('utf-8')
+                'pub_key': security.RSA_sendable_key( p.client.pub_key )
             })
         return p_list
         
@@ -527,6 +535,7 @@ while True:
     
     if buffer:
         (s, msg) = buffer.pop(0)
+        print( "Processing:\n", data,"\n" )
         msg = json.loads(msg)
         redirect_messages( msg , s )
 
@@ -550,6 +559,7 @@ while True:
                         if m:
                             buffer.append((s,m))
                     data = data[0]
+                    
                     print( "Received:\n", data,"\n" )
                     msg = json.loads(data)
                     redirect_messages(msg, s)

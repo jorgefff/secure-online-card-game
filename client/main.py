@@ -11,16 +11,17 @@ import random as rand
 from client import Client
 from table import Table
 from player import Player
-
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+import security
 
 # Select port
 AUTO = False
 AUTO_PORTS = [52001,52002,52003,52004]
 
 if len(argv) < 2:
-    print( "usages:")
-    print( "python3", argv[0], "<PORT_NUMBER>")
-    print( "python3", argv[0], "AUTO <0-3>")
+    print( "usages:" )
+    print( "python3", argv[0], "<PORT_NUMBER>" )
+    print( "python3", argv[0], "AUTO <0-3>" )
     exit()
 if argv[1].lower() == "auto":
     if not argv[2].isdigit:
@@ -28,10 +29,10 @@ if argv[1].lower() == "auto":
         exit()
     AUTO = True
 elif not argv[1].isdigit:
-    print( "Port argument needs to be an integer")
+    print( "Port argument needs to be an integer" )
     exit()
 elif int(argv[1]) < 1:
-    print( "port number needs to be > 0")
+    print( "port number needs to be > 0" )
     exit()
 
 

@@ -89,12 +89,12 @@ def RSA_decrypt( priv_key, ciphertext ):
 
 
 # Gets the bytes from this public key
-def RSA_key_bytes( key ):
+def RSA_sendable_key( key ):
     key_bytes = key.public_bytes(
         encoding = serialization.Encoding.PEM,
         format = serialization.PublicFormat.SubjectPublicKeyInfo
     )
-    return key_bytes
+    return key_bytes.decode('utf-8')
 
 
 # Loads a public key from the bytes of another public key
@@ -194,52 +194,49 @@ def validate_cert( cert, chain ):
         f.write(cert.public_bytes(Encoding.DER))
 
 
-def validate_sign( msg_fields, sig, certificate ):
-    # Get key
-    cert_der = x509.load_der_x509_certificate( certificate, default_backend() )
-    cc_key = cert_der.public_key()
+# Signs a message with private key
+def sign( msg_fields, priv_key):
+    hashing = hashes.Hash(hashes.SHA1(), default_backend())
+    for field in msg_fields:
+        hashing.update(field.encode())
+    digest = hashing.finalize()
 
-    # Reconstruct signature
+    return priv_key.sign(
+			digest,
+			padding.PSS(mgf=padding.MGF1(hashes.SHA1()),salt_length=padding.PSS.MAX_LENGTH),
+			hashes.SHA1())
+
+
+# Validates a signature made with a RSA private key
+def validate_rsa_sign( msg_fields, signature, pub_key):
+    # Rebuild signature
     hasher = hashes.Hash(hashes.SHA1(), default_backend())
     for field in msg_fields:
         hasher.update(field.encode())    
-
     digest = hasher.finalize()
+
+    return pub_key.verify(
+			signature,
+			digest,
+			padding.PSS(mgf=padding.MGF1(hashes.SHA1()),salt_length=padding.PSS.MAX_LENGTH),
+			hashes.SHA1())
+
+
+# Validates a signature made with a citizen card
+def validate_cc_sign( msg_fields, sig, certificate ):
+    # Get key from certificate
+    cert_der = x509.load_der_x509_certificate( certificate, default_backend() )
+    cc_key = cert_der.public_key()
+
+    # Rebuild signature
+    hasher = hashes.Hash(hashes.SHA1(), default_backend())
+    for field in msg_fields:
+        hasher.update(field.encode())    
+    digest = hasher.finalize()
+
+    # Verify
     try:
         cc_key.verify( sig, digest, padding.PKCS1v15(), hashes.SHA1() )
     except:
         return False
     return True
-
-
-############### DEBUG
-
-# print( "Generate private key" )
-# priv_k = generate_priv_key()
-
-# print( "Generating public key" )
-# pub_k = generate_pub_key( priv_k )
-
-# import json
-
-# msg = { "pubkey": get_key_bytes( pub_k ) }
-# msg = json.dumps( msg )
-
-# rcv = json.loads(msg)
-# key = load_key_from_bytes( rcv["pubkey"] )
-
-
-# text = "-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC+UwN4n8Jx8Ju4uXQwQBTqfnZS\nYZLzw8g53NkalghcWcBwy+tdkKiK6PlVfuqc+DuFShWOKdasgZk82d2oMf7mHxLM\nZii/MXNgmOtnlw+gFrdWSbatn4P3eRt7I6g8uR5scoCXek3mU4zskb7ZAdLQw1Jo\naUIn0sAIDfJS3g0aMQIDAQAB\n-----END PUBLIC KEY-----\n"
-
-# en = encrypt(pub_k, text)
-# de = decrypt(priv_k, en)
-
-# pwd = os.urandom(32)
-# iv = os.urandom(16)
-
-# t = "aaaabbbbbbbc"
-
-# ciph = AES_encrypt(pwd,iv,t)
-# print("Ciph:",ciph)
-# plain = AES_decrypt(pwd,iv, ciph)
-# print("Decip:",plain)
