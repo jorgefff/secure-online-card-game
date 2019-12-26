@@ -17,8 +17,8 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 
 # Chances
-PICK_CHANCE = 0.05
-SWAP_CHANCE = 0.5
+PICK_CHANCE = 0.5#0.05
+SWAP_CHANCE = 0#0.5
 COMMIT_CHANCE = 0.5
 
 
@@ -175,6 +175,7 @@ class Table:
 
     # Authenticate self and other players
     def player_auth( self ):
+        print(colored("Players authentication stage",'yellow'))
         print_lobby_state(self)
 
         # Self authentication
@@ -213,31 +214,28 @@ class Table:
                 count_reads = False
                 buffer_reads = 0
 
-            reply = self.c.wait_for_reply( bypass_buffer=bypass )
+            msg = self.c.wait_for_reply( bypass_buffer=bypass )
             
             bypass = False
             if count_reads:
                 buffer_reads += 1
 
-            sv_msg = reply['message']
-
             # Cycle buffer before checking for new msg
-            if 'table_update' in sv_msg.keys():
-                self.c.buffer.append( json.dumps( reply ) )
+            if 'table_update' in msg['message'].keys():
+                self.c.buffer.append( json.dumps( msg ) )
                 count_reads = True
                 continue
             
+            # sv_sig = reply['signature']
+            src = msg['message']['from']
             
-            sv_sig = reply['signature']
-            src = sv_msg['from']
-            
-            msg = sv_msg['relayed']['message']
-            signature = b64decode( sv_msg['relayed']['signature'] )
-
+            relayed = msg['message']['relayed']#self.c.load_relayed_data( msg['message']['relayed'] )
+            signature = b64decode( relayed['signature'] )
+            relayed = relayed['message']
             # Build chain
-            cert = b64decode( msg['certificate'] )
+            cert = b64decode( relayed['certificate'] )
             chain = []
-            for chain_cert in msg['chain']:
+            for chain_cert in relayed['chain']:
                 chain.append( b64decode( chain_cert ) )
 
             # Validate certification chain
@@ -246,10 +244,10 @@ class Table:
                 exit()
 
             fields = [
-                msg['name'],
-                msg['pub_key'],
-                msg['certificate'],
-                str(msg['chain']),
+                relayed['name'],
+                relayed['pub_key'],
+                relayed['certificate'],
+                str(relayed['chain']),
             ]
 
             if not security.validate_cc_sign( fields, signature, cert ):
@@ -260,7 +258,7 @@ class Table:
             # Update
             print("Player validated")
             self.players[src].certificate = cert
-            self.players[src].sendable_cert = msg['certificate']
+            self.players[src].sendable_cert = relayed['certificate']
             self.players[src].authd = True
 
             # Wait for next
@@ -270,6 +268,7 @@ class Table:
 
     # Confirm you want to play with these people
     def player_confirmation(self):
+        print(colored("Confirmation stage",'yellow'))
         identities = [
             {   'num': p.num,
                 'name': p.name,
@@ -349,9 +348,14 @@ class Table:
 
 
     def deck_encrypting( self ):
-        print( "Encryping deck" )
+        print(colored("Encryping deck",'yellow'))
         reply = self.c.wait_for_reply()
-        deck = reply['message']['relayed']['deck']
+        if type(reply['message']['relayed']) is str:
+            relayed = self.c.load_relayed_data(reply['message']['relayed'])
+        else:
+            relayed = reply['message']['relayed']
+        deck = relayed['deck']
+
         # Generate password and IV
         self.deck_pwd = os.urandom(32)
         self.deck_iv = os.urandom(16)
@@ -367,20 +371,25 @@ class Table:
         rand.shuffle( shuffled )
         deck = deck[0:1] + shuffled
         data = { 'deck': deck }
-        self.c.relay_data( self.table_id, data, next_player(self) )
+        self.c.relay_data( self.table_id, data, next_player(self), cipher=True)
 
 
     def card_selection( self ):
+        print(colored("Card selection",'yellow'))
         while True:
             reply = self.c.wait_for_reply()
+            if type(reply['message']['relayed']) is str:
+                relayed = self.c.load_relayed_data(reply['message']['relayed'])
+            else:
+                relayed = reply['message']['relayed']
 
             # Someone started bit commit process
-            if 'commits' in reply['message']['relayed'].keys():
-                commits = reply['message']['relayed']['commits']
+            if 'commits' in relayed.keys():
+                commits = relayed['commits']
                 self.passing_data['commits'].update( commits )
                 break
             
-            deck_passing = reply['message']['relayed']['deck'] 
+            deck_passing = relayed['deck'] 
             passing_size = deck_passing[0]
             deck_size = len( self.deck )
 
@@ -430,13 +439,14 @@ class Table:
     def commit_deck( self ):
         commit = 'BIT-COMMIT' #TODO
         commit = b64encode( commit.encode() ).decode('utf-8')
-        my_commit = { str( self.player_num ): commit }
-        self.passing_data['commits' ].update( my_commit )
+        my_commit = { str(self.player_num): commit }
+        self.passing_data['commits'].update( my_commit )
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
         while len( self.passing_data['commits'] ) < 4:
-            data = self.c.wait_for_reply()
-            commits = data['message']['relayed']['commits']
+            msg = self.c.wait_for_reply()
+            #relayed = self.c.load_relayed_data(data['message']['relayed'])
+            commits = msg['message']['relayed']['commits']
             self.passing_data['commits'].update( commits )
             self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
@@ -452,8 +462,9 @@ class Table:
         self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 
         while len( self.passing_data['deck_keys'] ) < 4:
-            data = self.c.wait_for_reply()
-            deck_keys = data['message']['relayed']['deck_keys']
+            msg = self.c.wait_for_reply()
+            #relayed = self.c.load_relayed_data(data['message']['relayed'])
+            deck_keys = msg['message']['relayed']['deck_keys']
             self.passing_data['deck_keys'].update( deck_keys )
             self.c.relay_data( self.table_id, self.passing_data, next_player(self) )
 

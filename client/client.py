@@ -107,22 +107,26 @@ class Client:
         return reply['message']['table_info']
 
 
-    def relay_data( self, table_id, data, p ):
-        ciph_data = data#security.RSA_encrypt(p.pub_key, data).decode('utf-8')
+    def relay_data( self, table_id, data, p, cipher=False ):
+        if cipher:
+            text_data = json.dumps(data)
+            data = security.RSA_encrypt(p.pub_key, text_data).decode('utf-8')
+            
         msg = {
             'message': {
                 'intent': 'relay',
                 'table_id': table_id,
                 'relay_to': p.num,
-                'relay': ciph_data,
+                'relay': data,
             }
         }
         msg = json.dumps(msg) + EOM
         self.sock.send(msg.encode())
 
     def load_relayed_data( self, ciph_data ):
-        deciph_data = security.RSA_decrypt( self.priv_key, ciph_data ).decode('utf-8')
+        deciph_data = security.RSA_decrypt( self.priv_key, ciph_data )
         data = json.loads( deciph_data )
+        print("Relayed to me:", data)
         return data
 
     # Waits for a reply from server( blocking )
