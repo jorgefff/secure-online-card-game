@@ -162,6 +162,7 @@ def automatic_main():
         reply = c.create_table()
     else:
         time.sleep(1)
+        #TODO: poll tables, enter
         print("Joining table")
         time.sleep(3)
         reply = c.join_table(0)

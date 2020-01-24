@@ -3,10 +3,11 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 
 class Player:
-    def __init__( self, num, name, pub_key ):
+    def __init__( self, num, name, dh ):
         self.num = num
         self.name = name
-        self.pub_key = security.RSA_load_key( pub_key )
+        #self.pub_key = security.RSA_load_key( pub_key )
+        self.dh = dh
         self.deck_key = None
         self.deck_iv = None
         self.bit_commit = None

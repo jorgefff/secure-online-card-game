@@ -37,50 +37,52 @@ sock.setsockopt(
     1
 )
 sock.bind(SV_ADDR)
+dh = security.Diffie_Hellman()
+dh.generate_keys()
 
 # End of message token
 EOM = '---EOM---' 
 
-def pre_register_client( client_socket):
-    priv_key = security.RSA_generate_priv()
-    pub_key = security.RSA_generate_pub( priv_key )
-    new_client = Client(
-        socket=client_socket,
-        sv_priv_key=priv_key,
-        sv_pub_key=pub_key,
-    )
+def pre_register_client(client_socket):
+    # priv_key = security.RSA_generate_priv()
+    # pub_key = security.RSA_generate_pub(priv_key)
+    new_client = Client(client_socket)
     pre_registers[client_socket] = new_client
 
 
-def send_pub_key( client_socket ):
+def send_pub_key(client_socket):
     c = pre_registers[ client_socket ]
-    key_bytes = security.RSA_sendable_key( c.sv_pub_key )
-    msg = {'pub_key' : key_bytes }
+    # key_bytes = security.RSA_sendable_key(c.sv_pub_key)
+    msg = {
+        'pub_key': dh.share_key(),
+        'iv': dh.share_iv(),
+    }
     msg = {
         'message': msg,
         'signature': "sig", #TODO
     }
     msg = json.dumps(msg) + EOM 
     msg = msg.encode()
-    client_socket.send( msg )
+    client_socket.send(msg)
 
 
-def register_client( msg, client_socket ):
+def register_client(msg, client_socket):
     c = pre_registers[ client_socket ]
 
     # Get all necessary fields
-    signature = b64decode( msg['signature'] )
+    signature = b64decode(msg['signature'])
     msg = msg['message']
     intent = msg['intent']
     name = msg['name']
-    key = msg['pub_key']
+    client_key = msg['pub_key']
+    client_iv = msg['iv']
     cert_msg = msg['certificate']
 
     # Validate certificate
-    cl_cert = b64decode( msg['certificate'] )
+    cl_cert = b64decode(msg['certificate'])
     chain = []
     for chain_cert in msg['chain']:
-        chain.append( b64decode( chain_cert ) )
+        chain.append(b64decode(chain_cert))
     
     if not security.validate_cert(cl_cert , chain):
         print(colored("Client '"+str(name)+"' certificate could not be verified", 'red'))
@@ -88,21 +90,23 @@ def register_client( msg, client_socket ):
         return
 
     # Validate signature
-    fields = [intent, name, key, cert_msg, str(msg['chain'])]
-    if not security.validate_cc_sign( fields, signature, cl_cert ):
+    msg = json.dumps(msg)
+    if not security.validate_cc_sign(msg, signature, cl_cert):
         print(colored("Client '"+str(name)+"' signature could not be verified", 'red'))
         del pre_registers[client_socket]
         return
 
     # Register
     c.name = name
-    c.pub_key = security.RSA_load_key( key )
+    c.dh = security.DH_Params()
+    c.dh.load_key(client_key)
+    c.dh.load_iv(client_iv)
     c.chain = chain
     clients[client_socket] = c
     del pre_registers[client_socket]
 
 
-def send_table_list( client_socket ):
+def send_table_list(client_socket):
     table_list = []
     for table in tables.values():
         if table.state == 'OPEN':
@@ -127,11 +131,12 @@ def get_new_table_id():
     return new_id
 
     
-def broadcast_new_player( players ):
+def broadcast_new_player(players):
     player = players[-1]
     new_player = {
         'name': player.client.name,
-        'pub_key': security.RSA_sendable_key( player.client.pub_key ),
+        'pub_key': player.client.dh.share_key(),#security.RSA_sendable_key(player.client.pub_key),
+        'iv': player.client.dh.share_iv(),
         'num': player.num 
     }
 
@@ -147,7 +152,7 @@ def broadcast_new_player( players ):
         p.client.send(msg)
 
 
-def broadcast_player_confirmation( players, pl_num ):
+def broadcast_player_confirmation(players, pl_num):
     for p in players:
         msg = {
             'table_update': {
@@ -160,7 +165,7 @@ def broadcast_player_confirmation( players, pl_num ):
         p.client.send(msg)
 
 
-def broadcast_state_change( players, new_state ):
+def broadcast_state_change(players, new_state):
     for p in players:
         msg = {
             'table_update': {
@@ -179,9 +184,9 @@ def generate_deck():
     specials = ["A", "K", "Q", "J"]  # Ace King Queen Jack
     for suit in suits:
         for sp in specials:
-            deck.append( suit + "-" + sp )
-        for n in range( 2,11 ):
-            deck.append( suit + "-" + str( n ))
+            deck.append(suit + "-" + sp)
+        for n in range(2,11):
+            deck.append(suit + "-" + str(n))
     return [len(deck)] + deck
 
 
@@ -212,10 +217,10 @@ def join_table_handler (msg, client):
 
     if table.is_full():
         table.state = 'FULL'
-        broadcast_state_change( table.players, 'FULL' )
+        broadcast_state_change(table.players, 'FULL')
         
 
-def create_table_handler( msg, client ):
+def create_table_handler(msg, client):
     table_id = get_new_table_id()
     new_table = Table(table_id)
     new_table.new_player(client)
@@ -224,14 +229,14 @@ def create_table_handler( msg, client ):
 
     reply = {
         'message': {
-            'table_info': new_table.get_table_info( client )
+            'table_info': new_table.get_table_info(client)
         },
         'signature': 'TO-DO-SV-SIG',
     }
     client.send(reply)
 
 
-def player_confirmation_handler( msg, client ):
+def player_confirmation_handler(msg, client):
     sig = msg['signature']
     msg = msg['message']
     table_id = msg['table_id']
@@ -250,8 +255,8 @@ def player_confirmation_handler( msg, client ):
         client.send(reply)
         return
     
-    pl_num = table.get_player_num( client )
-    broadcast_player_confirmation( table.players, pl_num )
+    pl_num = table.get_player_num(client)
+    broadcast_player_confirmation(table.players, pl_num)
     
     if table.all_confirmed():
         broadcast_state_change(table.players, 'SHUFFLE')
@@ -264,7 +269,7 @@ def player_confirmation_handler( msg, client ):
         }
         table.players[0].client.send(msg)
     
-def relay_handler( msg, client ):
+def relay_handler(msg, client):
     msg = msg['message']
     table_id = msg['table_id']
     if table_id not in tables.keys():
@@ -280,7 +285,7 @@ def relay_handler( msg, client ):
         client.send(reply)
         return
 
-    p_num = table.get_player( client ).num
+    p_num = table.get_player(client).num
 
     relay_to = msg['relay_to']
     relay = {
@@ -290,10 +295,10 @@ def relay_handler( msg, client ):
         },
         'signature': 'TO-DO-SV-SIG',
     }
-    table.players[ relay_to ].client.send( relay )
+    table.players[ relay_to ].client.send(relay)
         
 
-def bit_commit_handler( msg, client ):
+def bit_commit_handler(msg, client):
     table_id = msg['table_id']
     if table_id not in tables.keys():
         reply = {'error': 'Table not found'}
@@ -302,7 +307,7 @@ def bit_commit_handler( msg, client ):
 
     table = tables[ table_id ]
     commit = msg['bit_commit']
-    error = table.add_commit( client, commit )
+    error = table.add_commit(client, commit)
 
     if error:
         reply = {'error': error}
@@ -314,17 +319,16 @@ def bit_commit_handler( msg, client ):
 #########################################################################
 ## Client functions
 class Client:
-    def __init__ (self, socket, sv_priv_key, sv_pub_key):
+    def __init__ (self, socket):
         # Pre-register fields
         self.socket = socket
-        self.sv_priv_key = sv_priv_key
-        self.sv_pub_key = sv_pub_key
+        self.dh = security.DH_Params()
 
         # Registered client fields
         self.name = None
         self.cert = None
-        self.pub_key = None
         self.chain = None
+
 
     def send (self, msg):
         msg = json.dumps(msg) + EOM
@@ -427,7 +431,7 @@ class Table:
         return self.players.index(client)
 
 
-    def get_player( self, client ):
+    def get_player(self, client):
         i = self.players.index(client)
         return self.players[i]
 
@@ -438,7 +442,8 @@ class Table:
             p_list.append({
                 'name': p.client.name,
                 'num': p.num,
-                'pub_key': security.RSA_sendable_key( p.client.pub_key )
+                'pub_key': p.client.dh.share_key(),# security.RSA_sendable_key(p.client.pub_key)
+                'iv': p.client.dh.share_iv(),
             })
         return p_list
         
@@ -450,7 +455,7 @@ class Table:
         if self.state != 'FULL':
             return 'Action not valid in current table state'
 
-        player = self.get_player( client)
+        player = self.get_player(client)
         if player.confirmed:
             return 'Player already confirmed'
         
@@ -459,14 +464,14 @@ class Table:
         return None
         
 
-    def add_deck_key( self, client, key ):
+    def add_deck_key(self, client, key):
         if client not in self.players:
             return 'Player is not in this table'
 
         if self.state != 'SHUFFLING':
             return 'Action not valid in current table state'
 
-        player = self.get_player( client )
+        player = self.get_player(client)
         if player.deck_key:
             return 'Player already provided key'
         
@@ -475,14 +480,14 @@ class Table:
         return None
 
 
-    def add_commit( self, client, commit ):
+    def add_commit(self, client, commit):
         if client not in self.players:
             return 'Player is not in this table'
 
         if self.state != 'SHUFFLING':
             return 'Action not valid in current table state'
 
-        player = self.get_player( client )
+        player = self.get_player(client)
         if player.deck_key:
             return 'Player already provided key'
 
@@ -517,13 +522,13 @@ def redirect_messages (msg, client_socket):
             create_table_handler (msg, client)
         
         elif intent == 'confirm_players':
-            player_confirmation_handler( full_msg, client )
+            player_confirmation_handler(full_msg, client)
 
         elif intent == 'relay':
-            relay_handler( full_msg, client )
+            relay_handler(full_msg, client)
 
         elif intent == 'bit_commit':
-            bit_commit_handler( msg, client )
+            bit_commit_handler(msg, client)
 
         elif intent == 'play':
             # making a play
@@ -543,20 +548,20 @@ while True:
     
     if buffer:
         (s, msg) = buffer.pop(0)
-        print( "Processing:\n", data,"\n" )
+        print("Processing:\n", data,"\n")
         msg = json.loads(msg)
-        redirect_messages( msg , s )
+        redirect_messages(msg , s)
 
     else:
-        readable, writable, errored = select.select( read_list, [], [] )
+        readable, writable, errored = select.select(read_list, [], [])
         for s in readable:
             # New TCP connection
             if s is sock:
                 client_socket, address = sock.accept()
-                read_list.append( client_socket )
-                pre_register_client( client_socket )
-                send_pub_key( client_socket )
-                print( "Connection from", address )
+                read_list.append(client_socket)
+                pre_register_client(client_socket)
+                send_pub_key(client_socket)
+                print("Connection from", address)
             
             # Client sent a message
             else:
@@ -568,11 +573,11 @@ while True:
                             buffer.append((s,m))
                     data = data[0]
                     
-                    print( "Received:\n", data,"\n" )
+                    print("Received:\n", data,"\n")
                     msg = json.loads(data)
                     redirect_messages(msg, s)
                 else:
-                    print( "Client has disconnected" )
+                    print("Client has disconnected")
                     s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
                     read_list.remove (s)
                     

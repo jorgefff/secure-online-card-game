@@ -229,11 +229,11 @@ class CitizenCard:
 
 
     # Sign a message with the private citizen authentication key
-    def sign(self, msg_fields=[]):
+    def sign(self, msg):#msg_fields=[]):
         hashing = hashes.Hash(hashes.SHA1(), default_backend())
-        for field in msg_fields:
-            hashing.update(field.encode())
-    
+        #for field in msg_fields:
+        #    hashing.update(field.encode())
+        hashing.update(msg.encode())
         digest = hashing.finalize()
 
         if self.PKCS11_session is not None:
