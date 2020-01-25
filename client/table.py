@@ -135,8 +135,10 @@ class Table:
     def player_left(self, p_num):
         self.players.pop(p_num)
         self.pl_count = len(self.players)
-        for i in range(p_num, self.pl_count):
-            self.players[i].num = i
+        for p in self.players:
+            p.confirmed = False
+            if p.num > p_num:
+                p.num -= 1
             
 
     def player_confirmed(self, player_num):
@@ -160,7 +162,7 @@ class Table:
                     self.new_player(msg['new_player'])
 
                 elif update == 'player_left':
-                    self.player_left(msg['player_num'])
+                    self.player_left(msg['player_left'])
 
                 elif update == 'table_state':
                     self.update_state(msg['table_state'])

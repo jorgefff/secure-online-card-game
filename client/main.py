@@ -148,15 +148,22 @@ def automatic_main():
     c.join_server(IP, SERVER_PORT)
     time.sleep(1)
     
-    if PORT == AUTO_PORTS[0]:
-        print("\nCreating table")
-        reply = c.create_table()
-    else:
-        time.sleep(1)
-        #TODO: poll tables, enter
-        print("Joining table")
-        time.sleep(3)
-        reply = c.join_table(0)
+    reply = None
+    while not reply:
+        # Going to create a new table
+        if PORT == AUTO_PORTS[0]:
+            print("\nCreating table")
+            reply = c.create_table()
+            time.sleep(1)
+        # Going to join an existing table
+        else:
+            time.sleep(1)
+            tables = c.get_tables()
+            if len(tables) > 0:
+                table_id = tables[0]['id']
+                print("Joining table")
+                time.sleep(1)
+                reply = c.join_table(0)
 
     table = Table(
         client=c,

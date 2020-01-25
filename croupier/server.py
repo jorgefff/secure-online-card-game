@@ -153,6 +153,7 @@ def broadcast_new_player(players):
         p.client.send(msg)
 
 
+
 def broadcast_player_confirmation(players, pl_num):
     for p in players:
         msg = {
@@ -307,7 +308,7 @@ def bit_commit_handler(msg, client):
         client.send(reply)
         return
 
-    table = tables[ table_id ]
+    table = tables[table_id]
     commit = msg['bit_commit']
     error = table.add_commit(client, commit)
 
@@ -315,6 +316,30 @@ def bit_commit_handler(msg, client):
         reply = {'error': error}
         client.send(reply)
         return
+
+
+def client_left_handler(client_sock):
+    leavable_states = ['OPEN']
+    client = clients[client_sock]
+    for t in tables.values():
+        if t.state in leavable_states:
+            player = t.get_player(client)
+            t.player_left(player.num)
+            broadcast_player_left(t.players, player.num)
+            del clients[client_sock]
+
+
+def broadcast_player_left(players, player_num):
+    for p in players:
+        msg = {
+            'table_update': {
+                'update': 'player_left', 
+                'player_left': player_num}}
+        msg = {
+            'message': msg,
+            'signature': 'TO-DO-SV-SIG',
+        }
+        p.client.send(msg)
 
 
 
@@ -413,9 +438,12 @@ class Table:
         return self.commits == self.max_player_count
 
 
-    def player_left (self, client):
+    def player_left (self, num):
+        del self.players[num]
         for p in self.players:
-            p.confrimed = False
+            p.confirmed = False
+            if p.num > num:
+                p.num -= 1
         self.players_confirmed = 0
         self.player_count -=1
         
@@ -581,6 +609,12 @@ while True:
                     msg = json.loads(data)
                     redirect_messages(msg, s)
                 else:
+                    
+                    if s in pre_registers:
+                        print("Unregistered user has disconnected")
+                        del pre_registers[s]
+                    elif s in clients:
+                        client_left_handler(s)
                     print("Client has disconnected")
                     s.close() #TODO: remover dos jogos, ou manter para quando reconecta?
                     read_list.remove (s)

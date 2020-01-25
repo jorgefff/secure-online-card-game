@@ -103,6 +103,8 @@ class Client:
         request = json.dumps(request) + EOM
         self.sock.send(request.encode())
         reply = self.wait_for_reply()
+        if not reply:
+            return False
         return reply['message']['table_info']
 
 
@@ -115,6 +117,8 @@ class Client:
         request = json.dumps(request) + EOM
         self.sock.send(request.encode())
         reply = self.wait_for_reply()
+        if not reply:
+            return False
         return reply['message']['table_info']
 
 
@@ -162,7 +166,7 @@ class Client:
         reply = json.loads(reply)
         if 'error' in reply['message'].keys():
             print("ERROR:", reply['message']['error'])
-            return False, False
+            return False
 
         return reply
 
