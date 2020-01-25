@@ -341,7 +341,7 @@ class Table:
         relayed = reply['message']['relayed']
         src = reply['message']['from']
         
-        if src != 'croupier':
+        if type(reply['message']['relayed']) is not dict:
             src = self.players[int(src)]
             relayed = self.c.load_relayed_data(relayed, src.dh)
 
@@ -443,10 +443,13 @@ class Table:
 
 
     def commit_deck(self):
-        commit = 'BIT-COMMIT' #TODO
-        commit = b64encode(commit.encode()).decode('utf-8')
-        my_commit = { str(self.player_num): commit }
-        self.passing_data['commits'].update(my_commit)
+        data = sorted(self.deck)
+        data = str(data)
+        self.r1, self.r2, commit = security.bit_commit(data)
+
+        commit = b64encode(commit).decode('utf-8')
+        commit = {str(self.player_num): commit}
+        self.passing_data['commits'].update(commit)
         dst = next_player(self).num
         self.c.relay_data(self.table_id, self.passing_data, dst)
 
@@ -512,8 +515,10 @@ class Table:
 
     def start_game(self):
         print("\n\n\n\n\n")
-        for d in self.passing_data:
-            print(self.passing_data[d])
+        print("Commits:")
+        print(self.passing_data['commits'])
+        print("Deck keys:")
+        print(self.passing_data['deck_keys'])
         print("\n\nMy deck:", self.deck)
         
         print("The game is starting!")

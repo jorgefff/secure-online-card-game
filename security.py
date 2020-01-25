@@ -263,6 +263,14 @@ def validate_cc_sign(msg, sig, certificate):
     return True
 
 
+def bit_commit(data):
+    r1 = os.urandom(16)
+    r2 = os.urandom(16)
+    hashing = hashes.Hash(chosen_hash, default_backend())
+    hashing.update(data.encode())
+    digest = hashing.finalize()
+    return r1, r2, digest
+
 class Diffie_Hellman:
     def __init__(self):
         self.private_key = None
