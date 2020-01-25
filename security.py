@@ -317,8 +317,9 @@ class Diffie_Hellman:
         encryptor = aes.encryptor()
 
         padder = prim_padding.PKCS7(128).padder()
-        padded_data = padder.update(plaintext.encode()) + padder.finalize()
-        return encryptor.update(padded_data) + encryptor.finalize()
+        padded_data = padder.update(plaintext) + padder.finalize()
+        encrypted = encryptor.update(padded_data) + encryptor.finalize()
+        return b64encode(encrypted)
 
 
     def decrypt(self, ciphertext, shared_key, iv=None):
@@ -326,6 +327,7 @@ class Diffie_Hellman:
             iv = self.iv
         if type(ciphertext) is str:
             ciphertext = ciphertext.encode()
+        ciphertext = b64decode(ciphertext)
 
         shared_key = self.private_key.exchange(ec.ECDH(), shared_key)
         derived_key = HKDF(
@@ -346,9 +348,13 @@ class Diffie_Hellman:
 
 
 class DH_Params:
-    def __init__(self):
-        self.public_key = None
-        self.iv = None
+    def __init__(self, dh_json=None):
+        if dh_json is not None:
+            self.load_key(dh_json['pub_key'])
+            self.load_iv(dh_json['iv'])
+        else:
+            self.public_key = None
+            self.iv = None
 
     def load_key(self, public_key):
         if type(public_key) is str:

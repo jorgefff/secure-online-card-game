@@ -74,8 +74,9 @@ def register_client(msg, client_socket):
     msg = msg['message']
     intent = msg['intent']
     name = msg['name']
-    client_key = msg['pub_key']
-    client_iv = msg['iv']
+    client_dh = security.DH_Params()
+    client_dh.load_key(msg['pub_key'])
+    client_dh.load_iv(msg['iv'])
     cert_msg = msg['certificate']
 
     # Validate certificate
@@ -98,9 +99,7 @@ def register_client(msg, client_socket):
 
     # Register
     c.name = name
-    c.dh = security.DH_Params()
-    c.dh.load_key(client_key)
-    c.dh.load_iv(client_iv)
+    c.dh = client_dh
     c.chain = chain
     clients[client_socket] = c
     del pre_registers[client_socket]
@@ -135,9 +134,11 @@ def broadcast_new_player(players):
     player = players[-1]
     new_player = {
         'name': player.client.name,
-        'pub_key': player.client.dh.share_key(),#security.RSA_sendable_key(player.client.pub_key),
-        'iv': player.client.dh.share_iv(),
-        'num': player.num 
+        'num': player.num,
+        'dh': {
+            'pub_key': player.client.dh.share_key(),#security.RSA_sendable_key(player.client.pub_key),
+            'iv': player.client.dh.share_iv(),
+        },
     }
 
     for p in players[:-1]:
@@ -263,6 +264,7 @@ def player_confirmation_handler(msg, client):
         deck = generate_deck()
         msg = {
             'message': {
+                'from': 'croupier',
                 'relayed': { 
                     'deck': deck }
             }
@@ -442,8 +444,10 @@ class Table:
             p_list.append({
                 'name': p.client.name,
                 'num': p.num,
-                'pub_key': p.client.dh.share_key(),# security.RSA_sendable_key(p.client.pub_key)
-                'iv': p.client.dh.share_iv(),
+                'dh': {
+                    'pub_key': p.client.dh.share_key(),# security.RSA_sendable_key(p.client.pub_key)
+                    'iv': p.client.dh.share_iv(),
+                },
             })
         return p_list
         

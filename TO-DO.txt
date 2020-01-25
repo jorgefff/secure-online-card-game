@@ -1,4 +1,4 @@
-- assinar mensagens (todas?)
+- assinar mensagens (todas)
 - verificar assinaturas
 - assinatures do server
 - no inicio do jogo o server manda: "I <NAME> agree to the fee of $$" que tem q ser assinada e enviado de volta

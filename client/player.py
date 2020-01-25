@@ -3,11 +3,10 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 
 class Player:
-    def __init__( self, num, name, dh ):
-        self.num = num
-        self.name = name
-        #self.pub_key = security.RSA_load_key( pub_key )
-        self.dh = dh
+    def __init__(self, player_info):
+        self.num = player_info['num']
+        self.name = player_info['name']
+        self.dh = security.DH_Params(player_info['dh'])
         self.deck_key = None
         self.deck_iv = None
         self.bit_commit = None
@@ -18,5 +17,5 @@ class Player:
         self.authd = False
         self.confirmed = False
 
-    def set_num( self, num ):
+    def set_num(self, num):
         self.num = num

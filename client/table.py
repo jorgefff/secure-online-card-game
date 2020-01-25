@@ -42,9 +42,10 @@ def next_player(table):
 
 
 # Returns a random player
-def random_player(table):
+def random_player(table, avoid=None):
     options = [0, 1, 2, 3]
     options.remove(table.player_num)
+    options.remove(avoid)
     rand_num = rand.choice(options)
     return table.players[ rand_num ]
 
@@ -81,22 +82,24 @@ def print_lobby_state(table):
 #########################################################################
 ## Table class
 class Table:
-    def __init__(self, client, table_id, title, player_num, players, auto=False):
+    def __init__(self, client, table_info, auto=False):#, table_id, title, player_num, players, auto=False):
+        self.c = client
         self.auto = auto
         self.table_cmds = ['exit']
-        self.table_id = table_id
-        self.title = title
-        self.player_num = player_num
+        self.table_id = table_info['table_id']
+        self.title = table_info['title']
+        self.player_num = table_info['player_num']
+        self.state = 'OPEN'
+        
+        self.players = [Player(p) for p in table_info['players']]
+        self.pl_count = len(self.players)
+        self.max_players = 4
+        
         self.deck = []
         self.passing_data = {'commits': {}, 'deck_keys': {}}
         self.priv_deck_key = None
         self.pub_deck_key = None
-        self.state = 'OPEN'
-        self.players = players
-        self.pl_count = len(self.players)
-        self.max_players = 4
-        self.c = client
-
+        
 
     def start(self):
         self.wait_in_lobby()
@@ -123,16 +126,8 @@ class Table:
             self.table_cmds = []
 
 
-    def new_player(self, player):
-        dh = security.DH_Params()
-        dh.load_key(player['pub_key'])
-        dh.load_iv(player['iv'])
-
-        new_player = Player(
-            player['num'],
-            player['name'],
-            dh,
-       )
+    def new_player(self, player_info):
+        new_player = Player(player_info)
         self.players.append(new_player)
         self.pl_count = len(self.players)
     
@@ -185,8 +180,10 @@ class Table:
         # Self authentication
         my_auth = {
             'name': self.c.cc.name,
-            'pub_key': self.c.dh.share_key(),
-            'iv': self.c.dh.share_iv(),
+            'dh': {
+                'pub_key': self.c.dh.share_key(),
+                'iv': self.c.dh.share_iv(),
+            },
             'certificate': self.c.cc.sendable_cert,
             'chain': self.c.cc.sendable_chain,
         }
@@ -340,10 +337,11 @@ class Table:
     def deck_encrypting(self):
         print(colored("Encryping deck",'yellow'))
         reply = self.c.wait_for_reply()
+        
         relayed = reply['message']['relayed']
-
-        if type(reply['message']['relayed']) is str:
-            src = reply['message']['from']
+        src = reply['message']['from']
+        
+        if src != 'croupier':
             src = self.players[int(src)]
             relayed = self.c.load_relayed_data(relayed, src.dh)
 
@@ -378,8 +376,11 @@ class Table:
         print(colored("Card selection",'yellow'))
         while True:
             reply = self.c.wait_for_reply()
-            if type(reply['message']['relayed']) is str:
-                relayed = self.c.load_relayed_data(reply['message']['relayed'])
+            src = reply['message']['from']
+
+            if type(reply['message']['relayed']) is not dict:
+                src = self.players[int(src)]
+                relayed = self.c.load_relayed_data(reply['message']['relayed'], src.dh)
             else:
                 relayed = reply['message']['relayed']
 
@@ -433,7 +434,12 @@ class Table:
 
             # Send to random player
             data = {'deck': deck_passing }
-            self.c.relay_data(self.table_id, data, random_player(self))
+            if src == 'croupier':
+                avoid = None
+            else:
+                avoid = src.num
+            dst = random_player(self, avoid)
+            self.c.relay_data(self.table_id, data, dst.num, dst.dh, cipher=True)
 
 
     def commit_deck(self):
@@ -441,14 +447,16 @@ class Table:
         commit = b64encode(commit.encode()).decode('utf-8')
         my_commit = { str(self.player_num): commit }
         self.passing_data['commits'].update(my_commit)
-        self.c.relay_data(self.table_id, self.passing_data, next_player(self))
+        dst = next_player(self).num
+        self.c.relay_data(self.table_id, self.passing_data, dst)
 
         while len(self.passing_data['commits']) < 4:
             msg = self.c.wait_for_reply()
             #relayed = self.c.load_relayed_data(data['message']['relayed'])
             commits = msg['message']['relayed']['commits']
             self.passing_data['commits'].update(commits)
-            self.c.relay_data(self.table_id, self.passing_data, next_player(self))
+            dst = next_player(self).num
+            self.c.relay_data(self.table_id, self.passing_data, dst)
 
 
     def share_deck_key(self):
@@ -459,14 +467,16 @@ class Table:
             }
         }
         self.passing_data['deck_keys'].update(my_key)
-        self.c.relay_data(self.table_id, self.passing_data, next_player(self))
+        dst = next_player(self).num
+        self.c.relay_data(self.table_id, self.passing_data, dst)
 
         while len(self.passing_data['deck_keys']) < 4:
             msg = self.c.wait_for_reply()
             #relayed = self.c.load_relayed_data(data['message']['relayed'])
             deck_keys = msg['message']['relayed']['deck_keys']
             self.passing_data['deck_keys'].update(deck_keys)
-            self.c.relay_data(self.table_id, self.passing_data, next_player(self))
+            dst = next_player(self).num
+            self.c.relay_data(self.table_id, self.passing_data, dst)
 
 
     # Send passing_data to server to check if everyone has equal info

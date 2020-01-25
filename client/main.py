@@ -133,19 +133,10 @@ def main():
         elif opt == 4:
             reply = c.create_table()
 
-
         if reply:
             table = Table(
-                c,
-                reply['table_id'],
-                reply['title'],
-                reply['player_num'],
-                [ Player(
-                    p['num'],
-                    p['name'],
-                    p['pub_key']) 
-                    for p in reply[ 'players' ]
-                ]
+                client=c,
+                table_info=reply,
             )       
             table.start()
 
@@ -168,17 +159,9 @@ def automatic_main():
         reply = c.join_table(0)
 
     table = Table(
-        c,
-        reply['table_id'],
-        reply['title'],
-        reply['player_num'],
-        [ Player(
-            p['num'],
-            p['name'],
-            p['pub_key']) 
-            for p in reply[ 'players' ]
-        ],
-        auto=True
+        client=c,
+        table_info=reply,
+        auto=True,
     )     
     table.start()
 

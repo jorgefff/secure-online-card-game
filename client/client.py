@@ -121,7 +121,7 @@ class Client:
     def relay_data(self, table_id, data, dst, dh=None, cipher=False):
         if cipher:
             data = json.dumps(data)
-            data = self.dh.encrypt(data, dh.public_key) #security.RSA_encrypt(p.pub_key, text_data).decode('utf-8')
+            data = self.dh.encrypt(data, dh.public_key).decode('utf-8') #security.RSA_encrypt(p.pub_key, text_data).decode('utf-8')
             
         msg = {
             'message': {
