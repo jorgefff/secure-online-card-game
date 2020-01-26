@@ -389,12 +389,15 @@ class DH_Params:
         return b64encode(self.iv).decode('utf-8')
 
     def valid_signature(self, msg, signature):
-        hashing = hashes.Hash(choosen_hash, default_backend())
+        hashing = hashes.Hash(chosen_hash, default_backend())
         hashing.update(msg.encode())
         digest = hashing.finalize()
 
         try:
-            self.public_key.verify(signature, msg, ec.ECDSA(choosen_hash))
+            self.public_key.verify(
+                signature, 
+                digest, 
+                ec.ECDSA(chosen_hash))
         except:
             return False
 

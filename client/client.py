@@ -20,54 +20,39 @@ class Client:
         self.sock = socket.socket(
             socket.AF_INET, 
             socket.SOCK_STREAM
-       )
+        )
         self.sock.setsockopt(
             socket.SOL_SOCKET,
             socket.SO_REUSEADDR, 1
-       )
+        )
         self.sock.bind((ip, port))
         self.dh = security.Diffie_Hellman()
         self.dh.generate_keys()
-        self.sv_dh = security.DH_Params()
-        # self.priv_key =  security.RSA_generate_priv()
-        # self.pub_key = security.RSA_generate_pub(self.priv_key)
-        # self.sv_pub_key = None
+        self.sv_dh = None
         self.buffer = []
 
 
     def join_server(self, ip, port):
         try:
             self.sock.connect((ip, port))
-        except:
+        except Exception as e:
             print("Connection failed")
-            return
+            print(str(e))
+            return False
 
         reply = self.wait_for_reply()
+        self.sv_dh = security.DH_Params()
         self.sv_dh.load_key(reply['message']['pub_key'])
         self.sv_dh.load_iv(reply['message']['iv'])
-        # self.sv_pub_key = security.RSA_load_key(key)
         
         msg = {
             'intent': 'register',
             'name': self.cc.name,
-            # 'pub_key':  security.RSA_sendable_key(self.pub_key),
             'pub_key': self.dh.share_key(),
             'iv': self.dh.share_iv(),
             'certificate': self.cc.sendable_cert,
             'chain': self.cc.sendable_chain
         }
-
-        # Sign with citizen card
-       #  signature = self.cc.sign(
-       #      msg_fields=[
-       #          msg['intent'],
-       #          msg['name'],
-       #          msg['pub_key'],
-       #          msg['iv'],
-       #          msg['certificate'],
-       #          str(msg['chain']),
-       #      ]
-       # )
 
         signature = self.cc.sign(json.dumps(msg))
         signature = b64encode(signature).decode('utf-8')
@@ -79,6 +64,7 @@ class Client:
         }
         msg = json.dumps(msg) + EOM
         self.sock.send(msg.encode())
+        return True
     
     
     def get_tables(self):
@@ -94,26 +80,37 @@ class Client:
 
 
     def join_table(self, table_id):
+        msg = {
+            'intent' : 'join_table',
+            'table_id' : table_id
+        }           
+        signature = self.dh.sign(json.dumps(msg))
+        signature = b64encode(signature).decode('utf-8')
+        
         request = {
-            'message': {
-                'intent' : 'join_table',
-                'table_id' : table_id
-            }
+            'message': msg,
+            'signature': signature,
         }
+        
         request = json.dumps(request) + EOM
         self.sock.send(request.encode())
         reply = self.wait_for_reply()
         if not reply:
             return False
+
+
         return reply['message']['table_info']
 
 
     def create_table(self):
+        msg = {'intent': 'create_table'}
+        signature = self.dh.sign(json.dumps(msg))
+        signature = b64encode(signature).decode('utf-8')
         request = {
-            'message': {
-                'intent': 'create_table'
-            } 
+            'message': msg,
+            'signature': signature,
         }
+
         request = json.dumps(request) + EOM
         self.sock.send(request.encode())
         reply = self.wait_for_reply()
@@ -125,24 +122,32 @@ class Client:
     def relay_data(self, table_id, data, dst, dh=None, cipher=False):
         if cipher:
             data = json.dumps(data)
-            data = self.dh.encrypt(data, dh.public_key).decode('utf-8') #security.RSA_encrypt(p.pub_key, text_data).decode('utf-8')
-            
+            data = self.dh.encrypt(data, dh.public_key).decode('utf-8')
+        
         msg = {
-            'message': {
-                'intent': 'relay',
-                'table_id': table_id,
-                'relay_to': dst,
-                'relay': data,
-            }
+            'intent': 'relay',
+            'table_id': table_id,
+            'relay_to': dst,
+            'relay': data,
         }
-        msg = json.dumps(msg) + EOM
+        signature = self.dh.sign(json.dumps(msg))
+        signature = b64encode(signature).decode('utf-8')
+        
+        req = {
+            'message': msg,
+            'signature': signature,
+        }
+
+        req = json.dumps(req) + EOM
         self.sock.send(msg.encode())
 
+
     def load_relayed_data(self, ciph_data, dh):    
-        data = self.dh.decrypt(ciph_data, dh.public_key, dh.iv) #security.RSA_decrypt(self.priv_key, ciph_data)
+        data = self.dh.decrypt(ciph_data, dh.public_key, dh.iv)
         data = json.loads(data)
         print("Relayed to me:", data)
         return data
+
 
     # Waits for a reply from server (blocking)
     def wait_for_reply(self, bypass_buffer=False):
@@ -164,10 +169,23 @@ class Client:
             reply = reply[0]
         
         reply = json.loads(reply)
+        
+        if 'signature' not in reply.keys():
+            print("Unsigned message")
+            return False
+
+        if self.sv_dh is not None:
+            signature = b64decode(reply['signature'])
+            if not self.sv_dh.valid_signature(
+                    json.dumps(reply['message']), 
+                    signature):
+                print("Invalid signature!")
+                return False
+
         if 'error' in reply['message'].keys():
             print("ERROR:", reply['message']['error'])
             return False
-
+        
         return reply
 
 
@@ -207,6 +225,18 @@ class Client:
                     print("ERROR:", reply['message']['error'])
                     return False, False
                 
+                if 'signature' not in reply.keys():
+                    print("Unsigned message")
+                    return False, False
+
+                signature = b64decode(reply['signature'])
+
+                if not self.sv_dh.valid_signature(
+                        json.dumps(reply['message']), 
+                        signature):
+                    print("Invalid signature!")
+                    return False, False
+
                 return reply, None
 
     def send(self, msg):

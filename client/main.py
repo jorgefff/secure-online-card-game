@@ -16,7 +16,7 @@ import security
 
 # Select port
 AUTO = False
-AUTO_PORTS = [52001,52002,52003,52004]
+AUTO_PORTS = [52009,52002,52003,52004]
 
 if len(argv) < 2:
     print( "usages:" )
@@ -145,8 +145,9 @@ def automatic_main():
     print("Starting automatic client")
     c = Client(IP, CLIENT_PORT)
     print("Connecting...")
-    c.join_server(IP, SERVER_PORT)
-    time.sleep(1)
+    
+    while not c.join_server(IP, SERVER_PORT):
+        time.sleep(1)
     
     reply = None
     while not reply:
