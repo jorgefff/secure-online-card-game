@@ -133,12 +133,12 @@ class Client:
         signature = self.dh.sign(json.dumps(msg))
         signature = b64encode(signature).decode('utf-8')
         
-        req = {
+        msg = {
             'message': msg,
             'signature': signature,
         }
 
-        req = json.dumps(req) + EOM
+        msg = json.dumps(msg) + EOM
         self.sock.send(msg.encode())
 
 
