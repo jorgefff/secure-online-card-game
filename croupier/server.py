@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
+from hearts import Hearts
 
 # Global vars
 table_id_counter = 0
@@ -118,7 +119,7 @@ def send_table_list(client_socket):
                 'id': table.table_id,
                 'title': table.title,
                 'player_count': table.player_count,
-                'max_players': table.max_player_count})
+                'max_players': table.max_players})
 
     msg = {'table_list': table_list}
 
@@ -262,8 +263,6 @@ def relay_handler(msg, client):
         client.sign_and_send(reply)
         return
     
-    #TODO: verify players
-    #TODO: verify relays (in correct game state)
     table = tables[table_id]
     if not table.player_exists(client):
         reply = {'error': 'You are not in this table'}
@@ -317,6 +316,118 @@ def broadcast_player_left(players, player_num):
         p.client.sign_and_send(msg)
 
 
+def broadcast_game_abort(players, reason):
+    pass
+
+
+def pre_game_handler(msg, client):
+    table_id = msg['table_id']
+    if table_id not in tables.keys():
+        reply = {'error': 'Table not found'}
+        client.sign_and_send(reply)
+        return
+
+    table = tables[table_id]
+
+    if client not in table.players:
+        reply = {'error': 'Player not in this table'}
+        client.sign_and_send(reply)
+        return
+
+    player = table.get_player(client)
+    table.pre_game_infos[player.num] = msg['data']
+
+
+    if len(table.pre_game_infos) == table.max_players:
+        for i in range(table.max_players):
+            for k in range(1, table.max_players):
+                if table.pre_game_infos[0]['commits'][str(i)]['commit'] == table.pre_game_infos[k]['commits'][str(i)]['commit'] and \
+                table.pre_game_infos[0]['commits'][str(i)]['r1'] == table.pre_game_infos[k]['commits'][str(i)]['r1'] and \
+                table.pre_game_infos[0]['deck_keys'][str(i)]['pwd'] == table.pre_game_infos[k]['deck_keys'][str(i)]['pwd'] and \
+                table.pre_game_infos[0]['deck_keys'][str(i)]['iv'] == table.pre_game_infos[k]['deck_keys'][str(i)]['iv']:
+                    valid = True
+                else:
+                    valid = False
+                    print("MISMATCH VALIDATIONS")
+                    print(table.pre_game_infos)
+                    break
+
+        if valid:
+            table.start_game()
+            broadcast_state_change(table.players, 'game')
+        else:
+            broadcast_game_abort(table.players, 'MISMATCH VALIDATIONS')
+
+
+def play_handler(full_msg, client):
+    msg = full_msg['message']
+    table_id = msg['table_id']
+    if table_id not in tables.keys():
+        reply = {'error': 'Table not found'}
+        client.sign_and_send(reply)
+        return
+
+    table = tables[table_id]
+    if table.state != 'game':
+        reply = {'error': 'Game not started'}
+        client.sign_and_send(reply)
+        return
+
+    game = table.game
+    player = table.get_player(client).num
+    card = msg['card']
+
+    valid, error = game.valid_play(player, card)
+    if not valid:
+        reply = {'error': error}
+        client.sign_and_send(reply)
+        return
+
+    game.new_play(player, card)
+    broadcast_play(table.players, player, card, full_msg)
+
+    if game.full_trick():
+        print("FULL TRICK!")
+        player_num, points = game.trick_outcome()
+        broadcast_trick_outcome(table.players, player_num, points)
+
+    if game.is_over():
+        print("GAME OVER")
+        winners, losers = game.game_outcome()
+        broadcast_game_outcome(table.players, winners)
+        
+
+
+def broadcast_play(players, player, card, msg):
+    proof = msg
+    for p in players:
+        msg = {
+            'type': 'play',
+            'from': player,
+            'card': card, 
+            'proof': proof,
+        }
+        p.client.sign_and_send(msg)
+
+
+def broadcast_trick_outcome(players, player, points):
+    for p in players:
+        msg = {
+            'type': 'trick_outcome',
+            'player': player,
+            'points': points,
+        }
+        p.client.sign_and_send(msg)
+
+
+def broadcast_game_outcome(players, winners):
+    for p in players:
+        msg = {
+            'type': 'game_outcome',
+            'winners': winners
+        }
+        p.client.sign_and_send(msg)    
+
 
 #########################################################################
 ## Client functions
@@ -362,10 +473,10 @@ class Client:
 
 class Player:
     def __init__ (self, client, num):
-        self.score = 0
-        self.rounds_won = 0
+        self.points = 0
         self.client = client        
         self.num = num
+
         self.confirmed = False
         self.commit = None
 
@@ -383,20 +494,19 @@ class Table:
     def __init__ (self, table_id, title='Hearts'):
         self.table_id = table_id
         self.title = title
-        self.max_player_count = 4
+        self.max_players = 4
         self.state = 'OPEN'
         self.players = []
         self.player_count = 0
         self.players_confirmed = 0
-        self.deck_keys = 0
-        self.commits = 0
-
+        self.pre_game_infos = {}
+        self.game = None
 
     def new_player (self, client):
         if client in self.players:
             return 'Already inside'
             
-        if self.player_count >= self.max_player_count:
+        if self.player_count >= self.max_players:
             return 'Table is full'
         
         self.players.append(Player(client, self.player_count))
@@ -410,19 +520,11 @@ class Table:
         
     
     def is_full(self):
-        return self.player_count == self.max_player_count
+        return self.player_count == self.max_players
 
 
     def all_confirmed(self):
-        return self.players_confirmed == self.max_player_count
-
-
-    def all_deck_keys(self):
-        return self.deck_keys == self.max_player_count
-
-
-    def all_commits(self):
-        return self.commits == self.max_player_count
+        return self.players_confirmed == self.max_players
 
 
     def player_left (self, num):
@@ -513,6 +615,12 @@ class Table:
         player.commit = commit
         self.commits += 1
 
+    def start_game(self):
+        self.state = 'game'
+        self.game = Hearts()
+        self.game.set_players(self.players)
+        
+
 #########################################################################
 ## Main server functions
 
@@ -561,12 +669,15 @@ def redirect_messages (full_msg, client_socket):
         elif intent == 'relay':
             relay_handler(full_msg, client)
 
+        elif intent == 'validate_pre_game':
+            pre_game_handler(msg, client)
+
         elif intent == 'bit_commit':
             bit_commit_handler(msg, client)
 
         elif intent == 'play':
-            # making a play
-            pass
+            play_handler(full_msg, client)
+
         else:
             pass
 
@@ -590,6 +701,9 @@ while True:
         readable, writable, errored = select.select(read_list, [], [])
         for s in readable:
             
+            #TODO
+            #try: except ConnectionResetError as cre
+
             # New TCP connection
             if s is sock:
                 client_socket, address = sock.accept()

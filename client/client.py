@@ -145,22 +145,60 @@ class Client:
     def load_relayed_data(self, ciph_data, dh):    
         data = self.dh.decrypt(ciph_data, dh.public_key, dh.iv)
         data = json.loads(data)
-        print("Relayed to me:", data)
+        # print("Relayed to me:", data)
         return data
+
+
+    def validate_pre_game(self, table_id, data):
+        msg = {
+            'intent': 'validate_pre_game',
+            'table_id': table_id,
+            'data': data,
+        }
+
+        signature = self.dh.sign(json.dumps(msg))
+        signature = b64encode(signature).decode('utf-8')
+        
+        msg = {
+            'message': msg,
+            'signature': signature,
+        }
+
+        msg = json.dumps(msg) + EOM
+        self.sock.send(msg.encode())
+
+
+    def make_play(self, table_id, card):
+        play = {
+            'intent': 'play',
+            'table_id': table_id,
+            'card': card,
+        }
+
+        signature = self.dh.sign(json.dumps(play))
+        signature = b64encode(signature).decode('utf-8')
+
+        msg = {
+            'message': play,
+            'signature': signature,
+        }
+
+        msg = json.dumps(msg) + EOM
+        self.sock.send(msg.encode())
 
 
     # Waits for a reply from server (blocking)
     def wait_for_reply(self, bypass_buffer=False):
         if not bypass_buffer and self.buffer:
             reply = self.buffer.pop(0)
-            print("Processing: ", reply)
+            #print("Processing: ", reply)
         else:
             received, addr = self.sock.recvfrom(BUFFER_SIZE)
             if not received:
                 print("Server side error!\nClosing client")
                 exit()
 
-            print("\nReceived:", received)
+            #print("\nReceived:", received)
             reply = received.decode().rstrip()
             reply = reply.split(EOM)
             
@@ -196,7 +234,7 @@ class Client:
             reply = None
             if not bypass_buffer and self.buffer:
                 reply = self.buffer.pop(0)
-                print("Processing:\n\n", reply)
+                #print("Processing:\n\n", reply)
             else:
                 readable, writable, errored = select.select(read_list, [], [])
                 for s in readable:
@@ -234,7 +272,7 @@ class Client:
                 if not self.sv_dh.valid_signature(
                         json.dumps(reply['message']), 
                         signature):
-                    print("Invalid signature!")
+                    #print("Invalid signature!")
                     return False, False
 
                 return reply, None

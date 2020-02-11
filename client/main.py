@@ -14,36 +14,24 @@ from player import Player
 sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import security
 
-# Select port
-AUTO = False
-AUTO_PORTS = [52009,52002,52003,52004]
 
-if len(argv) < 2:
+arg_sizes = [2, 3]
+if len(argv) not in arg_sizes:
     print( "usages:" )
-    print( "python3", argv[0], "<PORT_NUMBER>" )
-    print( "python3", argv[0], "AUTO <0-3>" )
-    exit()
-if argv[1].lower() == "auto":
-    if not argv[2].isdigit:
-        print( "python3 player_client.py AUTO <1-4>" )
-        exit()
-    AUTO = True
-elif not argv[1].isdigit:
-    print( "Port argument needs to be an integer" )
-    exit()
-elif int(argv[1]) < 1:
-    print( "port number needs to be > 0" )
+    print( "Manual usage: python3", argv[0], "<PORT NUMBER>" )
+    print( "Automatic:    python3", argv[0], "<PORT NUMBER> <JOIN/CREATE>" )
     exit()
 
-
-# Address constants
-IP = 'localhost'
-if AUTO:
-    PORT = AUTO_PORTS[int(argv[2])]
-else:
-    PORT = int(argv[1])
+AUTO = False
+CREATE = False
 SERVER_PORT = 50000
-CLIENT_PORT = PORT
+IP = 'localhost'
+
+CLIENT_PORT = int(argv[1])
+
+if len(argv) == 3:
+    AUTO = True
+    CREATE = (argv[2].lower() == 'create')
 
 
 # Clear ports
@@ -152,7 +140,7 @@ def automatic_main():
     reply = None
     while not reply:
         # Going to create a new table
-        if PORT == AUTO_PORTS[0]:
+        if CREATE:
             print("\nCreating table")
             reply = c.create_table()
             time.sleep(1)
@@ -164,7 +152,7 @@ def automatic_main():
                 table_id = tables[0]['id']
                 print("Joining table")
                 time.sleep(1)
-                reply = c.join_table(0)
+                reply = c.join_table(table_id)
 
     table = Table(
         client=c,
