@@ -19,4 +19,5 @@ JOIN/CREATE to automically join or create a table upon connecting to the croupie
 
 ## TO-DO
 * Automatize the process of getting the certificates
+* Add cheating (there's already ways to detect it)
 * Do something with when cheating is detected
